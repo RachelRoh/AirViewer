@@ -1,0 +1,1906 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ellisys LE Audio Viewer</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #0a0e17; color: #c9d1d9; font-size: 13px; }
+
+  .header { background: #161b22; border-bottom: 1px solid #30363d; padding: 12px 20px; display: flex; align-items: center; gap: 16px; }
+  .header h1 { font-size: 16px; color: #58a6ff; font-weight: 600; }
+  .header .subtitle { color: #8b949e; font-size: 12px; }
+  .header-actions { margin-left: auto; display: flex; gap: 8px; }
+
+  .btn { padding: 6px 14px; border-radius: 6px; border: 1px solid #30363d; background: #21262d; color: #c9d1d9; cursor: pointer; font-size: 12px; transition: all 0.15s; }
+  .btn:hover { background: #30363d; border-color: #58a6ff; }
+  .btn-primary { background: #1f6feb; border-color: #1f6feb; color: #fff; }
+  .btn-primary:hover { background: #388bfd; }
+  .btn-sm { padding: 3px 10px; font-size: 11px; }
+
+  .dropzone { margin: 20px; padding: 60px; border: 2px dashed #30363d; border-radius: 12px; text-align: center; transition: all 0.2s; }
+  .dropzone.drag-over { border-color: #58a6ff; background: rgba(88,166,255,0.05); }
+  .dropzone h2 { color: #58a6ff; margin-bottom: 8px; font-size: 18px; }
+  .dropzone p { color: #8b949e; margin-bottom: 16px; }
+  .dropzone.hidden { display: none; }
+
+  .main { display: none; flex-direction: column; height: calc(100vh - 49px); }
+  .main.active { display: flex; }
+
+  /* Stream bar - global filter across all tabs */
+  .stream-bar { display: flex; gap: 6px; padding: 10px 20px; background: #0d1117; border-bottom: 1px solid #30363d; align-items: center; flex-wrap: wrap; }
+  .stream-bar-label { font-size: 11px; color: #8b949e; text-transform: uppercase; letter-spacing: 0.5px; margin-right: 4px; }
+  .stream-pill { display: inline-flex; align-items: center; gap: 5px; padding: 4px 12px; border-radius: 14px; border: 2px solid; cursor: pointer; font-size: 12px; font-weight: 500; transition: all 0.15s; user-select: none; }
+  .stream-pill.inactive { opacity: 0.25; }
+  .stream-pill:hover { opacity: 1; }
+  .stream-pill .sp-dot { width: 10px; height: 10px; border-radius: 50%; }
+  .dir-legend { display: inline-flex; align-items: center; gap: 12px; margin-left: 16px; padding-left: 16px; border-left: 1px solid #30363d; font-size: 11px; color: #8b949e; }
+  .dir-legend-item { display: flex; align-items: center; gap: 4px; }
+  .dir-swatch { width: 18px; height: 10px; border-radius: 2px; }
+
+
+  .tabs { display: flex; background: #161b22; border-bottom: 1px solid #30363d; padding: 0 20px; }
+  .tab { padding: 10px 16px; cursor: pointer; color: #8b949e; border-bottom: 2px solid transparent; font-size: 13px; transition: all 0.15s; }
+  .tab:hover { color: #c9d1d9; }
+  .tab.active { color: #58a6ff; border-bottom-color: #58a6ff; }
+
+  .filter-bar { display: flex; gap: 8px; padding: 8px 20px; background: #0d1117; border-bottom: 1px solid #30363d; align-items: center; flex-wrap: wrap; }
+  .filter-bar label { font-size: 11px; color: #8b949e; text-transform: uppercase; }
+  .filter-bar input[type="text"] { background: #161b22; border: 1px solid #30363d; color: #c9d1d9; padding: 5px 10px; border-radius: 4px; font-size: 12px; }
+  .filter-bar input:focus { outline: none; border-color: #58a6ff; }
+  .filter-group { display: flex; align-items: center; gap: 4px; }
+  .error-only-toggle { display: flex; align-items: center; gap: 4px; }
+  .error-only-toggle input[type="checkbox"] { accent-color: #f85149; }
+
+  .table-container { flex: 1; overflow: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  thead { position: sticky; top: 0; z-index: 10; }
+  th { background: #161b22; color: #8b949e; padding: 8px 10px; text-align: left; border-bottom: 2px solid #30363d; cursor: pointer; white-space: nowrap; user-select: none; font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.3px; position: relative; }
+  th:hover { color: #58a6ff; }
+  th .sort-arrow { margin-left: 4px; font-size: 10px; }
+  th .filter-icon { margin-left: 2px; font-size: 10px; opacity: 0.4; }
+  th .filter-icon.active { opacity: 1; color: #58a6ff; }
+  th .th-content { display: flex; align-items: center; gap: 2px; }
+  th .th-sort { cursor: pointer; flex: 1; }
+  th .th-filter-btn { cursor: pointer; padding: 2px 4px; border-radius: 3px; font-size: 11px; }
+  th .th-filter-btn:hover { background: #30363d; }
+
+  .col-filter-dropdown { position: absolute; top: 100%; left: 0; min-width: 220px; max-width: 320px; background: #1c2028; border: 1px solid #30363d; border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,0.5); z-index: 100; padding: 8px 0; display: none; }
+  .col-filter-dropdown.open { display: block; }
+  .col-filter-search { width: calc(100% - 16px); margin: 0 8px 6px; padding: 6px 8px; background: #0d1117; border: 1px solid #30363d; border-radius: 4px; color: #c9d1d9; font-size: 12px; outline: none; }
+  .col-filter-search:focus { border-color: #58a6ff; }
+  .col-filter-actions { display: flex; gap: 4px; padding: 0 8px 6px; border-bottom: 1px solid #30363d; margin-bottom: 4px; }
+  .col-filter-actions button { padding: 3px 8px; border-radius: 4px; border: 1px solid #30363d; background: #21262d; color: #8b949e; cursor: pointer; font-size: 11px; }
+  .col-filter-actions button:hover { color: #c9d1d9; border-color: #58a6ff; }
+  .col-filter-list { max-height: 260px; overflow-y: auto; padding: 0 4px; }
+  .col-filter-item { display: flex; align-items: center; gap: 6px; padding: 3px 8px; border-radius: 4px; cursor: pointer; font-size: 12px; color: #c9d1d9; }
+  .col-filter-item:hover { background: #21262d; }
+  .col-filter-item input[type="checkbox"] { accent-color: #58a6ff; cursor: pointer; flex-shrink: 0; }
+  .col-filter-item .cf-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .col-filter-item .cf-count { margin-left: auto; color: #8b949e; font-size: 10px; flex-shrink: 0; }
+  .col-filter-apply { display: flex; gap: 4px; padding: 6px 8px 0; border-top: 1px solid #30363d; margin-top: 4px; }
+  .col-filter-apply button { flex: 1; padding: 5px 0; border-radius: 4px; border: none; cursor: pointer; font-size: 12px; font-weight: 500; }
+  .col-filter-apply .cf-apply-btn { background: #1f6feb; color: #fff; }
+  .col-filter-apply .cf-clear-btn { background: #21262d; color: #c9d1d9; border: 1px solid #30363d; }
+
+  td { padding: 5px 10px; border-bottom: 1px solid #1c2028; white-space: nowrap; }
+  tr:hover { background: rgba(88,166,255,0.04); }
+  tr.error-row { background: rgba(248,81,73,0.08); }
+  tr.error-row:hover { background: rgba(248,81,73,0.14); }
+  tr.error-row td { color: #f85149; }
+  tr.warning-row { background: rgba(210,153,34,0.08); }
+  tr.warning-row td { color: #d29922; }
+  .cell-error { color: #f85149; font-weight: 600; }
+  .cell-ok { color: #3fb950; }
+  .cell-id { font-weight: 500; }
+  .cell-counter { color: #79c0ff; font-family: 'Consolas', monospace; }
+  .cell-retx { color: #d29922; }
+  .cell-muted { color: #484f58; }
+  .cell-issue { color: #db6d28; }
+  th.derived { color: #58a6ff; }
+  tr.ev-band td { background-image: linear-gradient(rgba(255,255,255,0.035), rgba(255,255,255,0.035)); }
+  tr.ev-start td { border-top: 1px solid #30363d; }
+  tr.cur-issue td { background: rgba(88,166,255,0.25) !important; }
+  .filter-bar select { background: #161b22; border: 1px solid #30363d; color: #c9d1d9; padding: 4px 6px; border-radius: 4px; font-size: 12px; }
+  .cell-payload { font-family: 'Consolas', monospace; max-width: 260px; overflow: hidden; text-overflow: ellipsis; }
+  .cell-timestamp { color: #8b949e; font-family: 'Consolas', monospace; }
+  /* stream color indicator on left border of row */
+  td.stream-indicator { padding: 0; width: 4px; min-width: 4px; border-bottom: none; }
+  tr.gap-row { background: rgba(210,153,34,0.06); }
+
+  .issues-panel { display: none; padding: 16px 20px; overflow: auto; flex: 1; flex-direction: column; gap: 16px; }
+  .issues-panel.active { display: flex; }
+  .issue-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 8px; }
+  .issue-card { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 10px 12px; cursor: pointer; }
+  .issue-card .label { font-size: 11px; color: #8b949e; text-transform: uppercase; letter-spacing: 0.3px; }
+  .issue-card .value { font-size: 22px; font-weight: 700; color: #3fb950; margin: 2px 0; }
+  .issue-card.bad .value { color: #f85149; }
+  .issue-card.off { cursor: default; opacity: 0.55; }
+  .issue-card.off .value { color: #484f58; }
+  .issue-card .sub { font-size: 11px; color: #6e7681; line-height: 1.4; }
+  .issue-card.sel, .issue-matrix td.sel { outline: 2px solid #58a6ff; outline-offset: -2px; }
+  .issue-matrix, .issue-list { background: #161b22; border: 1px solid #30363d; }
+  .issue-matrix { width: auto; }
+  .issue-matrix th, .issue-list th { cursor: default; }
+  .issue-matrix td.ic { text-align: center; color: #484f58; cursor: pointer; min-width: 80px; }
+  .issue-matrix td.ic.bad { color: #f85149; font-weight: 600; background: rgba(248,81,73,0.08); }
+  .issue-matrix td.ic:hover { background: #1c2028; }
+  .issue-matrix th.sum, .issue-matrix td.sum { text-align: right; font-variant-numeric: tabular-nums; }
+  .issue-matrix td.sum { color: #3fb950; }
+  .issue-matrix td.sum.bad { color: #f85149; font-weight: 600; }
+  .cause summary { cursor: pointer; color: #8b949e; font-size: 13px; padding: 4px 0; }
+  .cause summary:hover { color: #c9d1d9; }
+  .cause-body { display: grid; gap: 16px; margin-top: 10px; }
+  .issue-list-head { font-size: 13px; color: #c9d1d9; display: flex; align-items: center; gap: 10px; }
+  .issue-list-head .cnt { color: #8b949e; }
+  tr.gap-row td { text-align: center; color: #d29922; font-style: italic; border-bottom: 1px dashed #d29922; padding: 3px 10px; font-size: 11px; }
+
+  .chart-box { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 16px; flex: 1 1 400px; min-width: 400px; max-width: 100%; }
+  .chart-box h3 { font-size: 13px; color: #8b949e; margin-bottom: 4px; }
+  .chart-sub { font-size: 11px; color: #6e7681; margin-bottom: 10px; }
+  .chart-box canvas { cursor: crosshair; }
+
+  .timeline-panel { display: none; overflow: hidden; flex: 1; flex-direction: column; }
+  .timeline-panel.active { display: flex; }
+  .timeline-toolbar { display: flex; gap: 8px; padding: 8px 20px; background: #0d1117; border-bottom: 1px solid #30363d; align-items: center; flex-wrap: wrap; }
+  .timeline-toolbar .tl-info { margin-left: auto; color: #484f58; font-size: 11px; }
+  .tl-mode-group { display: flex; border: 1px solid #30363d; border-radius: 6px; overflow: hidden; }
+  .tl-mode-btn { padding: 4px 12px; background: #21262d; color: #8b949e; border: none; cursor: pointer; font-size: 11px; border-right: 1px solid #30363d; }
+  .tl-mode-btn:last-child { border-right: none; }
+  .tl-mode-btn:hover { background: #30363d; color: #c9d1d9; }
+  .tl-mode-btn.active { background: #1f6feb; color: #fff; }
+  .tl-legend { display: flex; gap: 10px; flex-wrap: wrap; font-size: 11px; color: #8b949e; }
+  .tl-legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; vertical-align: -1px; }
+  .tl-missing-marker { display: inline-block; width: 12px; height: 12px; border: 2px solid #f85149; border-radius: 50%; background: transparent; vertical-align: middle; }
+  .timeline-canvas-wrap { flex: 1; position: relative; overflow: hidden; }
+  .timeline-canvas-wrap canvas { display: block; }
+  .tl-selection { position: absolute; top: 0; height: 100%; background: rgba(88,166,255,0.1); border-left: 1px solid #58a6ff; border-right: 1px solid #58a6ff; pointer-events: none; display: none; }
+  .tl-selection.active { display: block; }
+
+  .modal-bg { position: fixed; inset: 0; background: rgba(1,4,9,0.7); display: none; align-items: flex-start; justify-content: center; z-index: 2000; overflow: auto; padding: 40px 16px; }
+  .modal-bg.open { display: flex; }
+  .modal { background: #161b22; border: 1px solid #30363d; border-radius: 10px; padding: 20px 24px; width: min(880px, 100%); box-shadow: 0 12px 40px rgba(0,0,0,0.5); }
+  .modal h2 { font-size: 16px; color: #c9d1d9; margin-bottom: 4px; }
+  .modal h3 { font-size: 12px; color: #8b949e; margin: 18px 0 8px; }
+  .modal .sub { font-size: 12px; color: #8b949e; margin-bottom: 12px; }
+  .modal .warn { color: #d29922; font-size: 12px; margin-bottom: 10px; }
+  .map-table th { position: static; cursor: default; }
+  .map-table td { padding: 4px 10px; }
+  .map-table select, .map-vals select { background: #0d1117; border: 1px solid #30363d; color: #c9d1d9; padding: 3px 6px; border-radius: 4px; font-size: 12px; max-width: 240px; }
+  .map-sample { font-family: 'Consolas', monospace; color: #79c0ff; max-width: 240px; overflow: hidden; text-overflow: ellipsis; }
+  .map-use { color: #6e7681; font-size: 11px; }
+  .map-vals { display: flex; flex-wrap: wrap; gap: 8px; }
+  .map-vals label { display: flex; align-items: center; gap: 6px; background: #0d1117; border: 1px solid #30363d; border-radius: 6px; padding: 4px 8px; font-size: 12px; }
+  .map-vals .mc { color: #6e7681; font-size: 10px; }
+  .modal-actions { display: flex; gap: 8px; margin-top: 18px; }
+  .tooltip { position: fixed; background: #1c2028; border: 1px solid #30363d; border-radius: 6px; padding: 8px 12px; font-size: 12px; pointer-events: none; z-index: 1000; display: none; box-shadow: 0 4px 12px rgba(0,0,0,0.4); max-width: 350px; line-height: 1.6; }
+  .tooltip .tt-row { display: flex; gap: 8px; }
+  .tooltip .tt-key { color: #8b949e; min-width: 80px; }
+  .tooltip .tt-val { color: #c9d1d9; font-weight: 500; }
+  .tooltip .tt-title { color: #58a6ff; font-weight: 600; margin-bottom: 4px; }
+  .tooltip .tt-error { color: #f85149; }
+
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-track { background: #0d1117; }
+  ::-webkit-scrollbar-thumb { background: #30363d; border-radius: 4px; }
+  ::-webkit-scrollbar-thumb:hover { background: #484f58; }
+  .pane-row { display: flex; flex: 1; overflow: hidden; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>Ellisys LE Audio Viewer</h1>
+  <span class="subtitle">CIS / BIS Packet Analyzer</span>
+  <div class="header-actions">
+    <button class="btn" id="btnSample">Generate Sample Data</button>
+    <button class="btn" id="btnColumns" style="display:none;" title="CSV 컬럼과 값 해석 확인·수정">Columns</button>
+    <button class="btn" id="btnLoad" style="display:none;">Load Another File</button>
+    <button class="btn" id="btnExport" style="display:none;">Export Report</button>
+  </div>
+</div>
+
+<div class="dropzone" id="dropzone">
+  <h2>Drop CSV File Here</h2>
+  <p>Drag & drop an Ellisys CSV export, or click to browse</p>
+  <input type="file" id="fileInput" accept=".csv,.tsv,.txt" style="display:none;">
+  <button class="btn btn-primary" onclick="document.getElementById('fileInput').click()">Browse Files</button>
+  <div style="margin-top: 20px;"><button class="btn" id="btnSample2">Or try with sample LE Audio data</button></div>
+</div>
+
+<div class="main" id="mainView">
+  <div class="stream-bar" id="streamBar"></div>
+  <div class="tabs">
+    <div class="tab active" data-tab="issues">Issues</div>
+    <div class="tab" data-tab="table">Packet Table</div>
+    <div class="tab" data-tab="timeline">Timeline</div>
+  </div>
+  <div class="filter-bar" id="filterBar">
+    <div class="error-only-toggle"><input type="checkbox" id="filterErrorOnly"><label for="filterErrorOnly" style="color:#f85149;">Errors only</label></div>
+    <div class="filter-group"><label>Issue</label><select id="navType"></select><button class="btn btn-sm" id="btnPrevIssue" title="이전 이슈 (p)">◀</button><button class="btn btn-sm" id="btnNextIssue" title="다음 이슈 (n)">▶</button><span id="navInfo" style="color:#8b949e;font-size:11px;"></span></div>
+    <div class="filter-group" style="margin-left:auto;"><label>Search</label><input type="text" id="filterSearch" placeholder="Search all columns..." style="width:180px;"></div>
+    <div class="filter-group"><span id="rowCount" style="color:#8b949e;font-size:11px;"></span></div>
+    <div class="filter-group"><button class="btn btn-sm" id="btnClearAllFilters" style="display:none;">Clear All Filters</button></div>
+  </div>
+  <div class="pane-row">
+    <div class="issues-panel active" id="issuesPanel"></div>
+    <div class="table-container" id="tablePanel" style="display:none;">
+      <table><thead id="tableHead"></thead><tbody id="tableBody"></tbody></table>
+    </div>
+    <div class="timeline-panel" id="timelinePanel">
+      <div class="timeline-toolbar" id="tlToolbar"></div>
+      <div class="timeline-canvas-wrap" id="tlCanvasWrap">
+        <canvas id="tlCanvas"></canvas>
+        <div class="tl-selection" id="tlSelection"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-bg" id="mapModal">
+  <div class="modal">
+    <h2>Column Mapping</h2>
+    <div class="sub">자동 감지 결과입니다. 틀린 항목을 고친 뒤 적용하세요. 같은 컬럼 구성의 파일을 다시 열면 이 설정이 자동으로 적용됩니다.</div>
+    <div id="mapBody"></div>
+    <div class="modal-actions"><button class="btn" id="mapReset" style="margin-right:auto;">자동 감지로 되돌리기</button><button class="btn" id="mapCancel">취소</button><button class="btn btn-primary" id="mapApply">적용</button></div>
+  </div>
+</div>
+
+<div class="tooltip" id="tooltip"></div>
+
+<script>
+// ============================================================
+//  COLOR SYSTEM
+//  Each CIS/BIS gets a base hue.
+//  C→P = solid (full saturation), P→C = lighter variant
+// ============================================================
+const BASE_HUES = [210, 140, 270, 35, 330, 180, 60, 300]; // enough for 8 streams
+const streamColorCache = {};
+let streamIds = [], dirValues = [];
+
+function assignStreamColors() {
+  streamColorCache.length = 0;
+  streamIds.forEach((id, i) => {
+    const hue = BASE_HUES[i % BASE_HUES.length];
+    streamColorCache[id] = {
+      hue,
+      // C→P: vivid solid
+      cToP:    `hsl(${hue}, 80%, 60%)`,
+      cToPBg:  `hsla(${hue}, 80%, 60%, 0.12)`,
+      // P→C: lighter, slightly desaturated
+      pToC:    `hsl(${hue}, 55%, 78%)`,
+      pToCBg:  `hsla(${hue}, 55%, 78%, 0.10)`,
+      // Generic (when direction unknown)
+      base:    `hsl(${hue}, 70%, 65%)`,
+      baseBg:  `hsla(${hue}, 70%, 65%, 0.10)`,
+    };
+  });
+}
+
+function getColor(streamId, dir) {
+  const c = streamColorCache[streamId];
+  if (!c) return { fg: '#8b949e', bg: 'transparent' };
+  if (!dir) return { fg: c.base, bg: c.baseBg };
+  if (isCtoPDir(dir)) return { fg: c.cToP, bg: c.cToPBg };
+  return { fg: c.pToC, bg: c.pToCBg };
+}
+
+// ============================================================
+//  STATE
+// ============================================================
+let rawData = [], headers = [], filteredData = [];
+let sortCol = -1, sortAsc = true;
+let detectedFields = {}, errorRows = new Set(), gapRows = new Map();
+let columnFilters = {}, openDropdown = null;
+// Stream filter (global across tabs)
+let activeStreams = new Set(); // which streams are visible
+
+// Timeline
+let tlZoom = 1, tlPanX = 0;
+let tlDragging = false, tlDragStartX = 0, tlDragStartPan = 0;
+let tlSelecting = false, tlSelStartX = 0, tlSelEndX = 0, tlSelActive = false;
+let tlHitBoxes = [];
+let tlEventsSetup = false;
+let tlMode = 'grid'; // 'grid' | 'rssi' | 'channel' | 'pairing'
+
+// Charts
+let chartHitBoxes = {};
+
+// ============================================================
+//  FIELD DETECTION
+// ============================================================
+const FIELD_PATTERNS = {
+  cisId:/\b(cis[_ ]?id)\b/i, cigId:/\b(cig[_ ]?id)\b/i,
+  bisId:/\b(bis[_ ]?id)\b/i, bigHandle:/\b(big[_ ]?(handle|id))\b/i,
+  eventCounter:/\b(event[_ ]?(counter|count|cnt))\b/i,
+  subevent:/\b(sub[_ ]?event)\b/i,
+  timestamp:/\b(time(stamp)?|time[_ ]?stamp)\b/i,
+  direction:/\b(dir(ection)?|src|source|flow)\b/i,
+  phy:/\b(phy|physical)\b/i, channel:/\b(ch(annel)?[_ ]?(index|num)?)\b/i,
+  rssi:/\b(rssi|signal)\b/i, crc:/\b(crc|fcs|check(sum)?)\b/i,
+  status:/\b(status|result|error|err)\b/i,
+  payloadLen:/\b(pay(load)?[_ ]?(len(gth)?|size|bytes))\b/i,
+  payload:/\b(payload|data|pdu)\b/i,
+  nse:/\b(nse|num[_ ]?sub[_ ]?events?)\b/i, bn:/\b(bn|burst[_ ]?number)\b/i,
+  ft:/\b(ft|flush[_ ]?(timeout|time))\b/i, isoInterval:/\b(iso[_ ]?interval|interval)\b/i,
+  sn:/\b(sn|seq(uence)?[_ ]?(num|number|no)?)\b/i, nesn:/\b(nesn|next[_ ]?exp)\b/i,
+  npi:/\b(npi|null[_ ]?pdu)\b/i,
+  item:/\b(item|no|num|index)\b|^#$/i,
+};
+function detectFields(h) {
+  const d = {};
+  // Each header maps to at most one field (first matching pattern), so "Payload Length" isn't also taken as "Payload"
+  h.forEach((hdr,i) => { for (const [k,p] of Object.entries(FIELD_PATTERNS)) { if(p.test(hdr.trim())){ if(d[k]===undefined) d[k]=i; break; } } });
+  return d;
+}
+function getStreamCol() { return detectedFields.cisId ?? detectedFields.bisId ?? null; }
+function getStreamType() { return detectedFields.cisId !== undefined ? 'CIS' : 'BIS'; }
+function getDirCol() { return detectedFields.direction; }
+function getDir(row) { const dc = getDirCol(); return dc !== undefined ? row[dc] : null; }
+function getGroupCol() { return getStreamType() === 'CIS' ? detectedFields.cigId : detectedFields.bigHandle; }
+function getGroupType() { return getStreamType() === 'CIS' ? 'CIG' : 'BIG'; }
+// CIS/BIS IDs can repeat across CIGs/BIGs, so when the capture has more than one group the stream key is "Group/ID"
+let streamUsesGroup = false, streamParts = {};
+function getStreamId(row) {
+  const sc = getStreamCol(); if (sc === null) return null;
+  return streamUsesGroup ? row[getGroupCol()] + '/' + row[sc] : row[sc];
+}
+function initStreams() {
+  const sc = getStreamCol(), gc = getGroupCol();
+  streamUsesGroup = sc !== null && gc !== undefined && new Set(rawData.map(r => r[gc])).size > 1;
+  streamParts = {};
+  if (sc !== null) rawData.forEach(r => { const sid = getStreamId(r); if (!streamParts[sid]) streamParts[sid] = { group: gc !== undefined ? r[gc] : null, id: r[sc] }; });
+  streamIds = Object.keys(streamParts).sort();
+}
+function streamLabel(sid) {
+  const p = streamParts[sid]; if (!p) return sid ?? '';
+  return (streamUsesGroup ? `${getGroupType()} ${p.group} · ` : '') + `${getStreamType()} ${p.id}`;
+}
+// Table filter for one stream: ID column, plus the group column when IDs repeat across groups
+function setStreamFilter(sid) {
+  const p = streamParts[sid]; if (!p) return;
+  columnFilters[getStreamCol()] = new Set([p.id]);
+  if (streamUsesGroup) columnFilters[getGroupCol()] = new Set([p.group]);
+}
+// ============================================================
+//  VALUE INTERPRETATION (overridable in Column Mapping)
+// ============================================================
+let dirOverride = {}, errOverride = {};
+const dirCache = new Map();
+const hasOwn = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
+// Role named by one side of a direction label: 'c' (Central/Master) or 'p' (Peripheral/Slave)
+function roleOf(t) {
+  t = t.trim().toLowerCase();
+  if (/central|master/.test(t) || /^(c|m)$/.test(t)) return 'c';
+  if (/peripheral|slave/.test(t) || /^(p|s)$/.test(t)) return 'p';
+  return null;
+}
+// "A → B": the sender (left side) decides; a single word names the sender
+function autoIsCtoP(dir) {
+  const parts = dir.split(/\s*(?:→|->|=>|>|\bto\b)\s*/i).filter(Boolean);
+  if (parts.length >= 2) {
+    const a = roleOf(parts[0]), b = roleOf(parts[parts.length - 1]);
+    if (a) return a === 'c';
+    if (b) return b === 'p';
+  }
+  return roleOf(dir) === 'c';
+}
+function isCtoPDir(dir) {
+  if (hasOwn(dirOverride, dir)) return dirOverride[dir] === 'c';
+  if (!dirCache.has(dir)) dirCache.set(dir, autoIsCtoP(dir));
+  return dirCache.get(dir);
+}
+function dirShort(dir) { return dir ? (isCtoPDir(dir) ? 'C→P' : 'P→C') : ''; }
+// kind: 'crc' treats 0 / false / no as a failure; Status codes like 0 are left alone
+function autoIsError(v, kind) {
+  v = (v ?? '').trim();
+  if (/^(ok|okay|pass(ed)?|good|valid|correct|success(ful)?|no\s*errors?|none)$/i.test(v)) return false;
+  if (kind === 'crc' && /^(0|false|no)$/i.test(v)) return true;
+  return /fail|error|\berr\b|bad|invalid|corrupt|mismatch|\bnok\b|\bng\b|miss|timeout|lost|abort/i.test(v);
+}
+function isErrorValue(v, kind) {
+  const t = (v ?? '').trim();
+  return hasOwn(errOverride, t) ? errOverride[t] : autoIsError(t, kind);
+}
+
+// ============================================================
+//  CSV PARSING
+// ============================================================
+function parseCSV(text) {
+  const lines = text.split(/\r?\n/).filter(l=>l.trim());
+  if (lines.length < 2) return {headers:[],data:[]};
+  let delim = ',';
+  if (lines[0].split('\t').length > lines[0].split(',').length) delim='\t';
+  else if (lines[0].split(';').length > lines[0].split(',').length) delim=';';
+  const parse = l => { const r=[]; let c='',q=false; for(let i=0;i<l.length;i++){const ch=l[i]; if(ch==='"')q=!q; else if(ch===delim&&!q){r.push(c.trim());c='';} else c+=ch;} r.push(c.trim()); return r; };
+  const hdrs=parse(lines[0]), data=[];
+  for(let i=1;i<lines.length;i++){const r=parse(lines[i]); if(r.length>=hdrs.length-1){while(r.length<hdrs.length)r.push(''); data.push(r);}}
+  return {headers:hdrs,data};
+}
+
+// ============================================================
+//  ERROR DETECTION
+// ============================================================
+function analyzeErrors(data,f) {
+  errorRows.clear(); gapRows.clear();
+  // Streams are interleaved in captures (CIS1 C→P, CIS1 P→C, CIS2 ...), so track the last Event Counter per stream+direction
+  const sc=getStreamCol(), dc=getDirCol(), lastEc=new Map();
+  data.forEach((r,i) => {
+    if((f.crc!==undefined&&isErrorValue(r[f.crc],'crc'))||(f.status!==undefined&&isErrorValue(r[f.status],'status'))) errorRows.add(i);
+    if(f.eventCounter!==undefined){
+      const curr=parseInt(r[f.eventCounter]); if(isNaN(curr)) return;
+      const key=(sc!==null?getStreamId(r):'')+'|'+(dc!==undefined?r[dc]:'');
+      const prev=lastEc.get(key);
+      if(prev!==undefined&&curr-prev>1) gapRows.set(i,{from:prev,to:curr,missed:curr-prev-1});
+      if(prev===undefined||curr>prev) lastEc.set(key,curr);
+    }
+  });
+}
+
+// ============================================================
+//  ISSUE DETECTION (Issues tab)
+//  Packets are grouped per stream+event and walked in capture order. For CIS the
+//  packet right after a C→P is its P→C response (and vice versa); the reply's NESN
+//  acks the SN (NESN == SN means "not received, retransmit").
+// ============================================================
+const ISSUE_TYPES = [
+  {key:'noResp', label:'No Response', desc:'C→P 송신에 대한 P→C 응답 없음', needs:['direction','eventCounter'], cisOnly:true},
+  {key:'nack', label:'NACK', desc:'응답의 NESN이 SN과 같음 → 상대가 수신 실패, 재전송 요청', needs:['direction','eventCounter','sn','nesn'], cisOnly:true},
+  {key:'crcLost', label:'Corrupted · Lost', desc:'CRC/Status 에러 후 이벤트 안에서 전달 확인 안 됨', needs:['crc|status','eventCounter']},
+  {key:'crcRecovered', label:'Corrupted · Recovered', desc:'CRC/Status 에러였지만 상대 ACK 또는 재전송 성공', needs:['crc|status','eventCounter']},
+  {key:'payloadEmpty', label:'Empty Payload', desc:'이벤트 첫 송신이 Null PDU (길이 0)', needs:['payloadLen|npi','eventCounter']},
+  {key:'payloadLen', label:'Length Mismatch', desc:'스트림 대표 길이와 다른 payload 길이', needs:['payloadLen','eventCounter']},
+  {key:'payloadZero', label:'All-zero Payload', desc:'payload 바이트가 전부 0x00', needs:['payload','eventCounter']},
+  {key:'ecSkip', label:'EC Skip', desc:'Event Counter 건너뜀 (스트림+방향별)', needs:['eventCounter']},
+  {key:'seSkip', label:'Subevent Skip', desc:'이벤트 안에서 Subevent 번호가 빠짐 (양방향 모두 없음)', needs:['eventCounter','subevent']},
+];
+const FIELD_LABELS={direction:'Direction',eventCounter:'Event Counter',sn:'SN',nesn:'NESN',crc:'CRC',status:'Status',payloadLen:'Payload Length',npi:'NPI',payload:'Payload',subevent:'Subevent'};
+let issues=[], issueChecks={}, issueSel=null, pktInfo=new Map();
+
+function analyzeIssues(){
+  issues=[]; issueChecks={}; pktInfo=new Map();
+  const f=detectedFields, dc=getDirCol(), ecCol=f.eventCounter, seCol=f.subevent;
+  const dirSet=dc!==undefined?new Set(rawData.map(r=>r[dc])):new Set();
+  const isCis=getStreamType()==='CIS'&&dirSet.size>=2;
+  ISSUE_TYPES.forEach(t=>{
+    const missing=t.needs.filter(n=>!n.split('|').some(k=>f[k]!==undefined)).map(n=>n.split('|').map(k=>FIELD_LABELS[k]||k).join(' 또는 '));
+    issueChecks[t.key]=missing.length?{on:false,why:'필요 컬럼: '+missing.join(', ')+' (상단 Columns에서 지정)'}:t.cisOnly&&!isCis?{on:false,why:'CIS 양방향 데이터에서만 검사'}:{on:true};
+  });
+  const num=(r,c)=>c===undefined?NaN:parseInt(r[c]);
+  const pDir=isCis?[...dirSet].find(d=>!isCtoPDir(d)):null;
+  const add=(type,oi,dir,detail)=>{if(!issueChecks[type].on)return;const r=rawData[oi];issues.push({type,oi,sid:getStreamId(r),dir:dir??(dc!==undefined?r[dc]:''),ec:num(r,ecCol),se:num(r,seCol),detail});};
+
+  // EC skip (from gapRows, per stream+direction)
+  gapRows.forEach((g,oi)=>{
+    const sid=getStreamId(rawData[oi]);
+    const both=[...gapRows].some(([o2,g2])=>o2!==oi&&g2.from===g.from&&g2.to===g.to&&getStreamId(rawData[o2])===sid);
+    add('ecSkip',oi,undefined,`${g.from} → ${g.to} (${g.missed} missed)`+(both?' · 양방향 모두 없음 (캡처 누락 의심)':''));
+  });
+  if(ecCol===undefined){issues.sort((a,b)=>a.oi-b.oi);return;}
+
+  const events=new Map();
+  rawData.forEach((r,oi)=>{const ec=num(r,ecCol);if(isNaN(ec))return;const k=getStreamId(r)+'|'+ec;if(!events.has(k))events.set(k,[]);events.get(k).push(oi);});
+  const hasAck=f.sn!==undefined&&f.nesn!==undefined;
+  const isNull=r=>(f.npi!==undefined&&r[f.npi].trim()==='1')||(f.payloadLen!==undefined&&num(r,f.payloadLen)===0);
+  const seBase=seCol!==undefined?rawData.reduce((m,r)=>{const v=num(r,seCol);return isNaN(v)?m:Math.min(m,v);},Infinity):0;
+  const firsts=[];
+
+  events.forEach(L=>{
+    const P=L.map(oi=>{const r=rawData[oi];return{oi,r,c:dc!==undefined?isCtoPDir(r[dc]):null,err:errorRows.has(oi),sn:num(r,f.sn),nesn:num(r,f.nesn),nul:isNull(r)};});
+    const reply=j=>isCis&&P[j+1]&&P[j+1].c!==P[j].c?P[j+1]:null;
+    // true = acked, false = NACK, null = unknown
+    const ack=j=>{const y=reply(j);return y&&hasAck&&!isNaN(y.nesn)&&!isNaN(P[j].sn)?y.nesn!==P[j].sn:null;};
+    P.forEach((x,j)=>{
+      // Per-packet facts for the Packet Table derived columns; retx = earlier data packets of this side (same SN) in the event
+      const retx=x.nul?0:P.slice(0,j).filter(z=>z.c===x.c&&!z.nul&&(isNaN(x.sn)||z.sn===x.sn)).length;
+      pktInfo.set(x.oi,{resp:isCis&&x.c?!!reply(j):null,ack:isCis&&!x.nul?ack(j):null,retx,nul:x.nul});
+      if(isCis&&x.c&&!reply(j)) add('noResp',x.oi,pDir,(seCol!==undefined?`SE${x.r[seCol]}: `:'')+'C→P 송신 후 P→C 응답 없음');
+      if(isCis&&!x.nul&&ack(j)===false) add('nack',x.oi,undefined,`${x.c?'P':'C'}가 NESN=${reply(j).nesn}으로 재전송 요청 (스니퍼 CRC: ${x.err?'Fail':'OK'})`);
+      if(x.err){
+        // Delivered if any same-SN packet of this side in the event got acked (or, without SN/NESN, a retransmission was captured CRC OK).
+        // A C→P retransmission with no P→C response doesn't count: the Peripheral evidently didn't receive it.
+        // A corrupted null PDU carries no audio, so nothing is lost.
+        let ok=false;
+        for(let m=0;m<P.length&&!ok;m++){const z=P[m];if(z.c!==x.c||(!isNaN(x.sn)&&z.sn!==x.sn))continue;const a=ack(m);ok=a===true||(a===null&&m>j&&!z.err&&!(isCis&&z.c&&!reply(m)));}
+        if(ok||x.nul) add('crcRecovered',x.oi,undefined,x.nul&&!ok?'Null PDU (오디오 손실 없음)':'같은 이벤트 안에서 전달 확인');
+        else add('crcLost',x.oi,undefined,'이벤트 종료까지 전달 확인 안 됨');
+      }
+    });
+    if(seCol!==undefined){
+      const seen=[...new Set(P.map(x=>num(x.r,seCol)).filter(v=>!isNaN(v)))].sort((a,b)=>a-b);
+      let prev=seBase-1;
+      seen.forEach(s=>{
+        if(s-prev>1){const at=P.find(x=>num(x.r,seCol)===s);const miss=Array.from({length:s-prev-1},(_,i)=>prev+1+i);add('seSkip',at.oi,undefined,`SE ${miss.join(', ')} 없음 → SE ${s}에서 재개`);}
+        prev=s;
+      });
+    }
+    const byDir=new Map();
+    P.forEach(x=>{const d=dc!==undefined?x.r[dc]:'';if(!byDir.has(d))byDir.set(d,{first:x,data:null});const b=byDir.get(d);if(!b.data&&!x.nul)b.data=x;});
+    byDir.forEach((b,d)=>firsts.push({key:getStreamId(b.first.r)+'|'+d,...b}));
+  });
+
+  // Payload: a direction whose events mostly start with a null PDU carries no audio (e.g. unidirectional) → not flagged
+  const pst={};
+  firsts.forEach(e=>{const s=pst[e.key]??={n:0,nul:0,lens:{}};s.n++;if(e.first.nul)s.nul++;if(e.data&&f.payloadLen!==undefined){const l=num(e.data.r,f.payloadLen);s.lens[l]=(s.lens[l]||0)+1;}});
+  for(const s of Object.values(pst)){s.noData=s.nul>s.n/2;s.mode=Object.keys(s.lens).sort((a,b)=>s.lens[b]-s.lens[a])[0];}
+  firsts.forEach(e=>{
+    const s=pst[e.key];if(s.noData)return;
+    if(e.first.nul)add('payloadEmpty',e.first.oi,undefined,'오디오 대신 Null PDU 송신');
+    if(!e.data)return;
+    if(f.payloadLen!==undefined){const l=num(e.data.r,f.payloadLen);if(String(l)!==s.mode)add('payloadLen',e.data.oi,undefined,`길이 ${l} (대표 길이 ${s.mode})`);}
+    if(f.payload!==undefined){const hx=e.data.r[f.payload].replace(/0x/gi,'').replace(/[^0-9a-f]/gi,'');if(hx&&/^0+$/.test(hx))add('payloadZero',e.data.oi,undefined,`${hx.length/2} bytes 전부 0x00`);}
+  });
+  issues.sort((a,b)=>a.oi-b.oi);
+}
+
+// ============================================================
+//  DERIVED COLUMNS (Packet Table)
+//  Appended after the CSV columns so sorting, column filters, search and export
+//  treat them like any other column. Columns without any value are left out.
+// ============================================================
+const DERIVED_DESC={Pair:'C→P 패킷에 P→C 응답이 있었는지',Ack:'상대 응답의 NESN 기준 ACK / NACK',Retx:'같은 이벤트 안에서 몇 번째 재전송인지','Payload State':'Data / Null PDU / 이상 (Empty · Len≠ · Zero)',Issues:'Issues 탭 검사 결과'};
+let baseColCount=0, issueTypesByRow=new Map();
+
+function appendDerivedColumns(){
+  const f=detectedFields,hasPayload=f.payloadLen!==undefined||f.npi!==undefined;
+  const label=Object.fromEntries(ISSUE_TYPES.map(t=>[t.key,t.label]));
+  issueTypesByRow=new Map();
+  issues.forEach(it=>{if(!issueTypesByRow.has(it.oi))issueTypesByRow.set(it.oi,[]);issueTypesByRow.get(it.oi).push(it.type);});
+  const cols={
+    Pair:p=>p.resp===true?'OK':p.resp===false?'No Resp':'',
+    Ack:p=>p.ack===true?'ACK':p.ack===false?'NACK':'',
+    Retx:p=>p.retx>0?'#'+p.retx:'',
+    'Payload State':(p,t)=>!hasPayload?'':t.includes('payloadZero')?'Zero':t.includes('payloadLen')?'Len≠':t.includes('payloadEmpty')?'Empty':p.nul===true?'Null':p.nul===false?'Data':'',
+    Issues:(p,t)=>t.map(k=>label[k]).join(', '),
+  };
+  const names=Object.keys(cols),fns=Object.values(cols);
+  const vals=rawData.map((r,oi)=>{const p=pktInfo.get(oi)||{},t=issueTypesByRow.get(oi)||[];return fns.map(fn=>fn(p,t));});
+  const keep=names.map((n,ci)=>n==='Issues'||vals.some(v=>v[ci]!==''));
+  baseColCount=headers.length;
+  names.forEach((n,ci)=>{if(keep[ci])headers.push(n);});
+  rawData.forEach((r,oi)=>vals[oi].forEach((v,ci)=>{if(keep[ci])r.push(v);}));
+}
+
+let causeOpen=false;
+// Canvases only have a width while the <details> is open, so draw on open
+function drawCause(){
+  chartHitBoxes={};
+  if(document.getElementById('chChan'))drawChannelFailChart();
+  if(document.getElementById('chHeat'))drawHeatmap();
+}
+
+function renderIssues(){
+  const panel=document.getElementById('issuesPanel');
+  const sc=getStreamCol(),dc=getDirCol(),ecCol=detectedFields.eventCounter,f=detectedFields;
+  const deliv=new Map(computeDelivery().map(g=>[g.sid+'|'+g.dir,g]));
+  const vis=issues.filter(it=>sc===null||activeStreams.has(it.sid));
+  const typeLabel=Object.fromEntries(ISSUE_TYPES.map(t=>[t.key,t.label]));
+
+  let h='<div class="issue-cards">';
+  ISSUE_TYPES.forEach(t=>{
+    const ck=issueChecks[t.key],n=vis.filter(i=>i.type===t.key).length;
+    const sel=issueSel&&issueSel.type===t.key&&issueSel.si===undefined;
+    h+=`<div class="issue-card ${!ck.on?'off':n>0?'bad':'ok'}${sel?' sel':''}" data-type="${t.key}"><div class="label">${t.label}</div><div class="value">${ck.on?n:'—'}</div><div class="sub">${escHtml(ck.on?t.desc:ck.why)}</div></div>`;
+  });
+  h+='</div>';
+
+  // Matrix: stream × direction rows, one column per enabled check
+  const dirs=dc!==undefined?[...new Set(rawData.map(r=>r[dc]))].sort((a,b)=>isCtoPDir(b)-isCtoPDir(a)):[''];
+  const sids=sc!==null?streamIds.filter(s=>activeStreams.has(s)):[null];
+  const onTypes=ISSUE_TYPES.filter(t=>issueChecks[t.key].on);
+  h+=`<table class="issue-matrix"><thead><tr><th>Stream</th><th>Dir</th><th class="sum" title="오디오 SDU가 전달된 이벤트 비율 (첫 전송 + 재전송 성공) / (전달 + 손실)">전달률</th><th class="sum" title="연속으로 손실된 이벤트 수의 최댓값 — 길수록 PLC로 숨기기 어려움">최대 연속 손실</th>${onTypes.map(t=>`<th>${t.label}</th>`).join('')}</tr></thead><tbody>`;
+  sids.forEach((sid,si)=>dirs.forEach((d,di)=>{
+    h+='<tr>';
+    if(di===0)h+=`<td rowspan="${dirs.length}" style="color:${getColor(sid,null).fg};font-weight:600;">${escHtml(sid===null?'All':streamLabel(sid))}</td>`;
+    h+=`<td style="color:${getColor(sid,d||null).fg};">${escHtml(d?dirShort(d):'—')}</td>`;
+    const g=deliv.get(sid+'|'+d),n={first:0,retx:0,lost:0};let run=0,mx=0;
+    if(g)g.list.forEach(e=>{if(e.st)n[e.st]++;if(e.st==='lost'){run++;mx=Math.max(mx,run);}else run=0;});
+    const tot=n.first+n.retx+n.lost;
+    h+=tot?`<td class="sum${n.lost?' bad':''}" title="첫 전송 성공 ${n.first} · 재전송 후 성공 ${n.retx} · 손실 ${n.lost} / ${tot} events">${((n.first+n.retx)/tot*100).toFixed(2)}%</td><td class="sum${mx?' bad':''}">${mx}</td>`
+      :'<td class="sum" title="오디오 데이터 없음 (Null PDU만)">—</td><td class="sum">—</td>';
+    onTypes.forEach(t=>{
+      const n=vis.filter(i=>i.type===t.key&&i.sid===sid&&i.dir===d).length;
+      const sel=issueSel&&issueSel.type===t.key&&issueSel.si===si&&issueSel.di===di;
+      h+=`<td class="ic${n>0?' bad':''}${sel?' sel':''}" data-type="${t.key}" data-si="${si}" data-di="${di}">${n||'·'}</td>`;
+    });
+    h+='</tr>';
+  }));
+  h+='</tbody></table>';
+
+  const canChan=f.channel!==undefined&&(f.crc!==undefined||f.status!==undefined),canHeat=f.rssi!==undefined&&ecCol!==undefined&&sc!==null;
+  if(canChan||canHeat){
+    h+=`<details class="cause" id="causeBox"${causeOpen?' open':''}><summary>원인 분석 — ${[canChan&&'채널별 CRC 에러율',canHeat&&'RSSI 히트맵'].filter(Boolean).join(' · ')}</summary><div class="cause-body">`;
+    if(canChan)h+='<div class="chart-box"><h3>CRC Failure Rate by Channel</h3><div class="chart-sub">채널별 CRC/Status 에러 비율 — 일부 채널만 높으면 간섭 의심 (빨강: 평균의 2배 초과)</div><canvas id="chChan"></canvas></div>';
+    if(canHeat)h+=`<div class="chart-box"><h3>RSSI Heatmap (${getStreamType()} x Event Counter)</h3><div class="chart-sub">손실이 약전계 구간과 겹치는지 확인</div><canvas id="chHeat"></canvas></div>`;
+    h+='</div></details>';
+  }
+
+  // Issue list (all, or the selected card / matrix cell)
+  let list=vis,title='전체 이슈';
+  if(issueSel){
+    list=vis.filter(i=>i.type===issueSel.type&&(issueSel.si===undefined||(i.sid===sids[issueSel.si]&&i.dir===dirs[issueSel.di])));
+    title=typeLabel[issueSel.type]+(issueSel.si!==undefined?` · ${sids[issueSel.si]===null?'All':streamLabel(sids[issueSel.si])}${dirs[issueSel.di]?' · '+dirShort(dirs[issueSel.di]):''}`:'');
+  }
+  const itemCol=detectedFields.item;
+  h+=`<div class="issue-list-head">${escHtml(title)} <span class="cnt">${list.length}건${list.length>500?' (처음 500건 표시)':''}</span>${issueSel?'<button class="btn btn-sm" id="btnIssueAll">전체 보기</button>':''}</div>`;
+  if(list.length===0){h+=`<div style="color:#3fb950;padding:8px 0;">${issueSel?'해당 이슈 없음':'감지된 이슈 없음'}</div>`;}
+  else{
+    h+=`<table class="issue-list"><thead><tr><th>${itemCol!==undefined?escHtml(headers[itemCol]):'Row'}</th><th>Stream</th><th>Dir</th><th>Event</th><th>SE</th><th>Check</th><th>Detail</th></tr></thead><tbody>`;
+    list.slice(0,500).forEach(it=>{
+      const col=getColor(it.sid,it.dir||null);
+      h+=`<tr><td class="cell-counter">${escHtml(itemCol!==undefined?rawData[it.oi][itemCol]:String(it.oi+1))}</td><td style="color:${col.fg};font-weight:600;">${escHtml(it.sid===null?'—':streamLabel(it.sid))}</td><td style="color:${col.fg};">${escHtml(it.dir?dirShort(it.dir):'—')}</td><td class="cell-counter">${isNaN(it.ec)?'—':it.ec}</td><td>${isNaN(it.se)?'—':it.se}</td><td>${typeLabel[it.type]}</td><td>${escHtml(it.detail)}</td></tr>`;
+    });
+    h+='</tbody></table>';
+  }
+  panel.innerHTML=h;
+  const cb=document.getElementById('causeBox');
+  if(cb){cb.addEventListener('toggle',()=>{causeOpen=cb.open;if(cb.open)drawCause();});if(causeOpen)requestAnimationFrame(drawCause);}
+
+  const toggle=sel=>{issueSel=issueSel&&issueSel.type===sel.type&&issueSel.si===sel.si&&issueSel.di===sel.di?null:sel;renderIssues();};
+  panel.querySelectorAll('.issue-card:not(.off)').forEach(el=>el.onclick=()=>toggle({type:el.dataset.type}));
+  panel.querySelectorAll('td.ic').forEach(el=>el.onclick=()=>toggle({type:el.dataset.type,si:+el.dataset.si,di:+el.dataset.di}));
+  const ba=document.getElementById('btnIssueAll');if(ba)ba.onclick=()=>{issueSel=null;renderIssues();};
+}
+
+// ============================================================
+//  TOOLTIP
+// ============================================================
+const tooltipEl = document.getElementById('tooltip');
+function showTooltip(x,y,html) {
+  tooltipEl.innerHTML=html; tooltipEl.style.display='block';
+  const r=tooltipEl.getBoundingClientRect();
+  tooltipEl.style.left=Math.min(x+12,window.innerWidth-r.width-8)+'px';
+  tooltipEl.style.top=Math.min(y+12,window.innerHeight-r.height-8)+'px';
+}
+function hideTooltip() { tooltipEl.style.display='none'; }
+
+// ============================================================
+//  STREAM BAR (global filter across all tabs)
+// ============================================================
+function buildStreamBar() {
+  const bar = document.getElementById('streamBar');
+  const sc = getStreamCol(), dc = getDirCol();
+  if (sc === null) { bar.innerHTML = '<span class="stream-bar-label">No stream ID column detected</span>'; return; }
+
+  dirValues = dc !== undefined ? [...new Set(rawData.map(r=>r[dc]))].sort() : [];
+  assignStreamColors();
+  activeStreams = new Set(streamIds);
+
+  let html = `<span class="stream-bar-label">${streamUsesGroup ? getGroupType() + '/' : ''}${getStreamType()} Streams:</span>`;
+  streamIds.forEach(id => {
+    const c = streamColorCache[id];
+    html += `<span class="stream-pill" data-stream="${id}" style="border-color:${c.base};color:${c.base};"><span class="sp-dot" style="background:${c.base};"></span>${escHtml(id)}</span>`;
+  });
+
+  // Direction legend
+  if (dc !== undefined && dirValues.length >= 2) {
+    html += `<div class="dir-legend">`;
+    // Show two swatches: C→P solid, P→C lighter using first stream's colors as example
+    const ex = streamColorCache[streamIds[0]];
+    if (ex) {
+      html += `<div class="dir-legend-item"><div class="dir-swatch" style="background:${ex.cToP};"></div><span>C→P (solid)</span></div>`;
+      html += `<div class="dir-legend-item"><div class="dir-swatch" style="background:${ex.pToC};"></div><span>P→C (light)</span></div>`;
+    }
+    html += `</div>`;
+  }
+
+  html += `<button class="btn btn-sm" id="btnStreamAll" style="margin-left:auto;">All</button>`;
+  bar.innerHTML = html;
+
+  // Bind clicks
+  bar.querySelectorAll('.stream-pill').forEach(el => {
+    el.addEventListener('click', () => {
+      const sid = el.dataset.stream;
+      if (activeStreams.has(sid)) { activeStreams.delete(sid); el.classList.add('inactive'); }
+      else { activeStreams.add(sid); el.classList.remove('inactive'); }
+      onStreamFilterChange();
+    });
+  });
+  document.getElementById('btnStreamAll').addEventListener('click', () => {
+    activeStreams = new Set(streamIds);
+    bar.querySelectorAll('.stream-pill').forEach(el => el.classList.remove('inactive'));
+    onStreamFilterChange();
+  });
+}
+
+function onStreamFilterChange() {
+  applyFilters();
+  // Re-render active tab
+  const at = document.querySelector('.tab.active')?.dataset.tab;
+  if (at === 'timeline') requestAnimationFrame(drawTimeline);
+  if (at === 'issues') renderIssues();
+}
+
+// ============================================================
+//  VISIBLE DATA (respecting stream filter)
+// ============================================================
+function getVisibleData() {
+  const sc = getStreamCol();
+  const result = []; result._oi = [];
+  rawData.forEach((r,i) => {
+    if (sc !== null && !activeStreams.has(getStreamId(r))) return;
+    result.push(r); result._oi.push(i);
+  });
+  return result;
+}
+
+// ============================================================
+//  COLUMN FILTER DROPDOWN
+// ============================================================
+let filterBarBound = false;
+function initFilterBar() {
+  columnFilters = {};
+  // Issue navigation: types present in this capture
+  const counts = {}; issueTypesByRow.forEach(ts => ts.forEach(t => counts[t] = (counts[t] || 0) + 1));
+  document.getElementById('navType').innerHTML = `<option value="all">All issues</option>` +
+    ISSUE_TYPES.filter(t => counts[t.key]).map(t => `<option value="${t.key}">${t.label} (${counts[t.key]})</option>`).join('');
+  document.getElementById('navInfo').textContent = '';
+  // Listeners are bound once; loading another file only resets state
+  if (filterBarBound) return;
+  filterBarBound = true;
+  document.getElementById('navType').addEventListener('change', () => { navPos = -1; document.getElementById('navInfo').textContent = ''; renderTable(); });
+  document.getElementById('btnPrevIssue').addEventListener('click', () => navIssue(-1));
+  document.getElementById('btnNextIssue').addEventListener('click', () => navIssue(1));
+  document.addEventListener('keydown', e => {
+    if (document.querySelector('.tab.active')?.dataset.tab !== 'table' || /INPUT|SELECT|TEXTAREA/.test(e.target.tagName) || e.ctrlKey || e.metaKey || e.altKey) return;
+    if (e.key === 'n') navIssue(1); else if (e.key === 'p') navIssue(-1);
+  });
+  document.getElementById('filterErrorOnly').addEventListener('change', applyFilters);
+  document.getElementById('filterSearch').addEventListener('input', applyFilters);
+  document.getElementById('btnClearAllFilters').addEventListener('click', () => {
+    columnFilters = {};
+    document.getElementById('filterErrorOnly').checked = false;
+    document.getElementById('filterSearch').value = '';
+    document.getElementById('btnClearAllFilters').style.display = 'none';
+    applyFilters();
+  });
+}
+function openColFilter(ci,thEl) {
+  closeColFilter();
+  const counts={}; rawData.forEach(r=>{const v=r[ci]||'';counts[v]=(counts[v]||0)+1;});
+  const allV=Object.keys(counts).sort((a,b)=>{const na=parseFloat(a),nb=parseFloat(b);return(!isNaN(na)&&!isNaN(nb))?na-nb:a.localeCompare(b);});
+  const cur=columnFilters[ci];
+  const dd=document.createElement('div');dd.className='col-filter-dropdown open';dd.onclick=e=>e.stopPropagation();
+  const si=document.createElement('input');si.className='col-filter-search';si.placeholder='Search...';dd.appendChild(si);
+  const ac=document.createElement('div');ac.className='col-filter-actions';
+  const bA=document.createElement('button');bA.textContent='Select All';
+  const bN=document.createElement('button');bN.textContent='Select None';
+  ac.appendChild(bA);ac.appendChild(bN);dd.appendChild(ac);
+  const list=document.createElement('div');list.className='col-filter-list';
+  const cbs=[];
+  allV.forEach(v=>{const it=document.createElement('label');it.className='col-filter-item';const cb=document.createElement('input');cb.type='checkbox';cb.checked=cur?cur.has(v):true;cb.dataset.value=v;cbs.push(cb);const lb=document.createElement('span');lb.className='cf-label';lb.textContent=v||'(empty)';lb.title=v;const ct=document.createElement('span');ct.className='cf-count';ct.textContent=counts[v];it.appendChild(cb);it.appendChild(lb);it.appendChild(ct);list.appendChild(it);});
+  dd.appendChild(list);
+  si.oninput=()=>{const q=si.value.toLowerCase();list.querySelectorAll('.col-filter-item').forEach(it=>{it.style.display=it.querySelector('.cf-label').textContent.toLowerCase().includes(q)?'':'none';});};
+  bA.onclick=()=>cbs.forEach(cb=>{if(cb.closest('.col-filter-item').style.display!=='none')cb.checked=true;});
+  bN.onclick=()=>cbs.forEach(cb=>{if(cb.closest('.col-filter-item').style.display!=='none')cb.checked=false;});
+  const ar=document.createElement('div');ar.className='col-filter-apply';
+  const bAp=document.createElement('button');bAp.className='cf-apply-btn';bAp.textContent='Apply';
+  const bCl=document.createElement('button');bCl.className='cf-clear-btn';bCl.textContent='Clear';
+  ar.appendChild(bAp);ar.appendChild(bCl);dd.appendChild(ar);
+  bAp.onclick=()=>{const sel=new Set();cbs.forEach(cb=>{if(cb.checked)sel.add(cb.dataset.value);});if(sel.size===allV.length)delete columnFilters[ci];else columnFilters[ci]=sel;closeColFilter();updateFilterInd();applyFilters();};
+  bCl.onclick=()=>{delete columnFilters[ci];closeColFilter();updateFilterInd();applyFilters();};
+  thEl.appendChild(dd);openDropdown={colIdx:ci,element:dd};si.focus();
+  requestAnimationFrame(()=>{const r=dd.getBoundingClientRect();if(r.right>window.innerWidth){dd.style.left='auto';dd.style.right='0';}});
+}
+function closeColFilter(){if(openDropdown){openDropdown.element.remove();openDropdown=null;}}
+function updateFilterInd(){
+  document.querySelectorAll('th .filter-icon').forEach(ic=>ic.classList.toggle('active',columnFilters[parseInt(ic.dataset.col)]!==undefined));
+  const any=Object.keys(columnFilters).length>0||document.getElementById('filterErrorOnly').checked||document.getElementById('filterSearch').value;
+  document.getElementById('btnClearAllFilters').style.display=any?'':'none';
+}
+document.addEventListener('click',e=>{if(openDropdown&&!e.target.closest('.col-filter-dropdown')&&!e.target.closest('.th-filter-btn'))closeColFilter();});
+
+// ============================================================
+//  APPLY FILTERS (combines stream bar + column filters + search)
+// ============================================================
+function applyFilters() {
+  const errorOnly = document.getElementById('filterErrorOnly').checked;
+  const search = document.getElementById('filterSearch').value.toLowerCase();
+  const sc = getStreamCol();
+  filteredData=[]; filteredData._origIndices=[];
+  navPos=-1; tableStart=0; document.getElementById('navInfo').textContent='';
+  rawData.forEach((row,idx) => {
+    // Stream filter
+    if (sc!==null && !activeStreams.has(getStreamId(row))) return;
+    // Column filters
+    for (const [cs,as] of Object.entries(columnFilters)){if(!as.has(row[parseInt(cs)]||''))return;}
+    if (errorOnly && !errorRows.has(idx) && !gapRows.has(idx)) return;
+    if (search && !row.some(c=>c.toLowerCase().includes(search))) return;
+    filteredData.push(row); filteredData._origIndices.push(idx);
+  });
+  renderTable(); updateFilterInd();
+  document.getElementById('rowCount').textContent=`${filteredData.length} / ${rawData.length}`;
+}
+
+// ============================================================
+//  TABLE
+// ============================================================
+// Move to the previous/next row (in current filter + sort order) that has an issue of the selected type
+const TABLE_PAGE = 2000;
+let navPos = -1, tableStart = 0;
+function navIssue(step) {
+  const type = document.getElementById('navType').value, idx = filteredData._origIndices, n = idx.length;
+  const match = i => { const t = issueTypesByRow.get(idx[i]); return !!t && (type === 'all' || t.includes(type)); };
+  const info = document.getElementById('navInfo');
+  if (n === 0) { info.textContent = '없음'; return; }
+  const start = navPos < 0 ? (step > 0 ? -1 : n) : navPos;
+  let found = -1;
+  for (let k = 1; k <= n; k++) { const i = ((start + step * k) % n + n) % n; if (match(i)) { found = i; break; } }
+  if (found < 0) { info.textContent = '없음'; return; }
+  navPos = found;
+  // Rows are rendered in pages; move the page so the target row is rendered
+  if (found < tableStart || found >= tableStart + TABLE_PAGE) tableStart = Math.max(0, found - TABLE_PAGE / 2);
+  let rank = 0, total = 0;
+  for (let i = 0; i < n; i++) if (match(i)) { total++; if (i <= found) rank++; }
+  info.textContent = `${rank} / ${total}`;
+  renderTable();
+  document.querySelector('#tableBody tr.cur-issue')?.scrollIntoView({ block: 'center' });
+}
+
+function renderTable() {
+  const thead=document.getElementById('tableHead');
+  // Add extra column for stream color indicator
+  let hh='<tr><th style="width:4px;min-width:4px;padding:0;"></th>';
+  headers.forEach((h,i)=>{
+    const arrow=sortCol===i?(sortAsc?' ▲':' ▼'):'';
+    const fa=columnFilters[i]?' active':'';
+    hh+=`<th data-col="${i}"${i>=baseColCount?` class="derived" title="${escHtml(DERIVED_DESC[h]||'')}"`:''}><div class="th-content"><span class="th-sort" data-col="${i}">${escHtml(h)}<span class="sort-arrow">${arrow}</span></span><span class="th-filter-btn" data-col="${i}">&#9662;<span class="filter-icon${fa}" data-col="${i}"></span></span></div></th>`;
+  });
+  thead.innerHTML=hh+'</tr>';
+  thead.querySelectorAll('.th-sort').forEach(el=>{el.onclick=e=>{e.stopPropagation();const col=parseInt(el.dataset.col);if(sortCol===col)sortAsc=!sortAsc;else{sortCol=col;sortAsc=true;}
+    // Sort rows together with their original indices so error/gap/issue lookups stay aligned
+    const fd=filteredData,oiArr=fd._origIndices;
+    const ord=fd.map((_,i)=>i).sort((x,y)=>{const va=fd[x][col]||'',vb=fd[y][col]||'',na=parseFloat(va),nb=parseFloat(vb);return(!isNaN(na)&&!isNaN(nb))?(sortAsc?na-nb:nb-na):(sortAsc?va.localeCompare(vb):vb.localeCompare(va));});
+    filteredData=ord.map(i=>fd[i]);filteredData._origIndices=ord.map(i=>oiArr[i]);
+    navPos=-1;tableStart=0;document.getElementById('navInfo').textContent='';renderTable();};});
+  thead.querySelectorAll('.th-filter-btn').forEach(el=>{el.onclick=e=>{e.stopPropagation();const col=parseInt(el.dataset.col),th=el.closest('th');if(openDropdown&&openDropdown.colIdx===col)closeColFilter();else openColFilter(col,th);};});
+
+  const tbody=document.getElementById('tableBody');
+  const sc=getStreamCol(), dc=getDirCol(), ecCol=detectedFields.eventCounter;
+  const end=Math.min(filteredData.length,tableStart+TABLE_PAGE);
+  let bh='',prevEc=null,band=false;
+  for(let i=tableStart;i<end;i++){
+    const row=filteredData[i],oi=filteredData._origIndices[i];
+    // Alternate shading per Event Counter so event boundaries are visible
+    const ec=ecCol!==undefined?row[ecCol]:null,evStart=ec!==prevEc&&i>tableStart;
+    if(ec!==prevEc){band=!band;prevEc=ec;}
+    const evCls=(ecCol!==undefined&&band?' ev-band':'')+(ecCol!==undefined&&evStart?' ev-start':'')+(i===navPos?' cur-issue':'');
+    const isErr=errorRows.has(oi),gap=gapRows.get(oi);
+    const sid=sc!==null?getStreamId(row):null;
+    const dir=dc!==undefined?row[dc]:null;
+    const col=getColor(sid,dir);
+    if(gap) bh+=`<tr class="gap-row"><td></td><td colspan="${headers.length}">⚠ ${escHtml(streamLabel(sid))}${dir?' · '+dirShort(dir):''} — Gap: ${gap.from} → ${gap.to} (${gap.missed} missed)</td></tr>`;
+    bh+=`<tr class="${isErr?'error-row':gap?'warning-row':''}${evCls}" style="${!isErr&&!gap?'background:'+col.bg:''}">`;
+    bh+=`<td class="stream-indicator" style="background:${col.fg};"></td>`;
+    headers.forEach((h,ci)=>{const v=row[ci]||'';let cls=getCellClass(ci,v);
+      // Color stream ID and direction cells
+      if(ci===sc) bh+=`<td style="color:${col.fg};font-weight:600;">${escHtml(v)}</td>`;
+      else if(ci===dc) bh+=`<td style="color:${col.fg};">${escHtml(v)}</td>`;
+      else bh+=`<td class="${cls}">${escHtml(v)}</td>`;
+    });
+    bh+='</tr>';
+  }
+  if(filteredData.length>TABLE_PAGE) bh+=`<tr><td></td><td colspan="${headers.length}" style="text-align:center;color:#8b949e;padding:16px;">Showing rows ${(tableStart+1).toLocaleString()}–${end.toLocaleString()} of ${filteredData.length.toLocaleString()} (◀ ▶ issue navigation moves this window)</td></tr>`;
+  tbody.innerHTML=bh;
+}
+function getCellClass(ci,val){
+  if(ci>=baseColCount){
+    if(['No Resp','NACK','Empty','Len≠','Zero'].includes(val)) return 'cell-error';
+    if(val==='OK'||val==='ACK') return 'cell-ok';
+    if(val.startsWith('#')) return 'cell-retx';
+    if(val==='Null') return 'cell-muted';
+    if(headers[ci]==='Issues'&&val) return 'cell-issue';
+    return '';
+  }
+  if(ci===detectedFields.cigId||ci===detectedFields.bigHandle) return 'cell-id';
+  if(ci===detectedFields.eventCounter||ci===detectedFields.sn) return 'cell-counter';
+  if(ci===detectedFields.timestamp) return 'cell-timestamp';
+  if(ci===detectedFields.payload) return 'cell-payload';
+  if(ci===detectedFields.crc||ci===detectedFields.status){if(!val)return '';return isErrorValue(val,ci===detectedFields.crc?'crc':'status')?'cell-error':'cell-ok';}
+  return '';
+}
+function escHtml(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+
+// ============================================================
+//  CAUSE ANALYSIS CHARTS (Issues tab, collapsible)
+// ============================================================
+function setupCanvas(id,height) {
+  const c=document.getElementById(id);if(!c)return null;
+  const ctx=c.getContext('2d'),dpr=window.devicePixelRatio||1;
+  const w=c.parentElement.clientWidth-32,h=height||260;
+  c.width=w*dpr;c.height=h*dpr;c.style.width=w+'px';c.style.height=h+'px';ctx.scale(dpr,dpr);
+  c.addEventListener('mousemove',e=>chartMM(id,e));
+  c.addEventListener('mouseleave',()=>hideTooltip());
+  return{ctx,w,h};
+}
+function chartMM(id,e){
+  const boxes=chartHitBoxes[id];if(!boxes)return;
+  const r=e.target.getBoundingClientRect(),mx=e.clientX-r.left,my=e.clientY-r.top;
+  for(const b of boxes){
+    if(b.type==='bar'&&mx>=b.x&&mx<=b.x+b.w&&my>=b.y&&my<=b.y+b.h){showTooltip(e.clientX,e.clientY,b.tooltip);return;}
+    if(b.type==='point'&&Math.hypot(mx-b.x,my-b.y)<6){showTooltip(e.clientX,e.clientY,b.tooltip);return;}
+    if(b.type==='rect'&&mx>=b.x&&mx<=b.x+b.w&&my>=b.y&&my<=b.y+b.h){showTooltip(e.clientX,e.clientY,b.tooltip);return;}
+  }
+  hideTooltip();e.target.style.cursor='crosshair';
+}
+
+
+// ============================================================
+//  DELIVERY MODEL (Issues matrix: delivery rate, longest loss burst)
+//  Per stream+direction, per event from the stream's first to last event:
+//  'first' = audio delivered on its first transmission, 'retx' = delivered after
+//  retransmission, 'lost' = not delivered (event missing, no packet of this
+//  direction, CRC lost, or a C→P SDU the Peripheral never answered),
+//  null = no audio sent (only null PDUs).
+// ============================================================
+function computeDelivery(){
+  const ecCol=detectedFields.eventCounter,dc=getDirCol();if(ecCol===undefined)return[];
+  const dirs=dc!==undefined?[...new Set(rawData.map(r=>r[dc]))].sort((a,b)=>isCtoPDir(b)-isCtoPDir(a)):[''];
+  const isCis=getStreamType()==='CIS'&&dirs.length>=2;
+  const evs=new Map();
+  rawData.forEach((r,oi)=>{
+    const ec=parseInt(r[ecCol]);if(isNaN(ec))return;const sid=getStreamId(r),d=dc!==undefined?r[dc]:'';
+    if(!evs.has(sid))evs.set(sid,new Map());const m=evs.get(sid);if(!m.has(ec))m.set(ec,new Map());
+    const e=m.get(ec);if(!e.has(d))e.set(d,[]);e.get(d).push(oi);
+  });
+  const out=[];
+  (getStreamCol()!==null?streamIds:[null]).forEach(sid=>{
+    const m=evs.get(sid);if(!m)return;
+    const ecs=[...m.keys()].sort((a,b)=>a-b),lo=ecs[0],hi=ecs[ecs.length-1];
+    dirs.forEach(d=>{
+      const list=[];
+      for(let ec=lo;ec<=hi;ec++){
+        const e=m.get(ec),pk=e?e.get(d)||[]:[];let st;
+        if(!pk.length)st='lost';
+        else{
+          const data=pk.filter(oi=>!(pktInfo.get(oi)||{}).nul);
+          if(!data.length)st=null;
+          else if(data.some(oi=>(issueTypesByRow.get(oi)||[]).includes('crcLost')))st='lost';
+          else if(isCis&&isCtoPDir(d)&&data.every(oi=>(pktInfo.get(oi)||{}).resp===false))st='lost';
+          else st=data.some(oi=>(pktInfo.get(oi)||{}).retx>0)?'retx':'first';
+        }
+        list.push({ec,st,oi:pk[0]});
+      }
+      out.push({sid,dir:d,list});
+    });
+  });
+  return out;
+}
+const groupShort=(sid,dir)=>`${sid===null?'All':sid}${dir?' '+dirShort(dir):''}`;
+// Visible stream+direction groups, in stream-bar order with C→P first
+function drawChannelFailChart(){
+  const s=setupCanvas('chChan');if(!s)return;const{ctx,w,h}=s;const hits=[];chartHitBoxes.chChan=hits;
+  const col=detectedFields.channel,sc=getStreamCol(),ch={};let tot=0,err=0;
+  rawData.forEach((r,oi)=>{if(sc!==null&&!activeStreams.has(getStreamId(r)))return;const v=r[col];if(v===''||v===undefined)return;const c=ch[v]??={t:0,e:0};c.t++;tot++;if(errorRows.has(oi)){c.e++;err++;}});
+  const labels=Object.keys(ch).sort((a,b)=>parseInt(a)-parseInt(b));if(!labels.length)return;
+  const mean=tot?err/tot:0,rates=labels.map(l=>ch[l].e/ch[l].t),maxRate=Math.max(...rates,mean*2,0.01);
+  const sX=50,sY=10,cH=h-40,bw=Math.max(2,(w-sX-10)/labels.length-2);
+  ctx.strokeStyle='#1c2028';ctx.fillStyle='#8b949e';ctx.font='10px Segoe UI';
+  for(let i=0;i<=4;i++){const y=sY+cH-(cH*i/4);ctx.beginPath();ctx.moveTo(sX,y);ctx.lineTo(w,y);ctx.stroke();ctx.fillText((maxRate*i/4*100).toFixed(1)+'%',0,y+3);}
+  labels.forEach((l,i)=>{
+    const c=ch[l],r=rates[i],x=sX+2+i*(bw+2),bh=r/maxRate*cH,y=sY+cH-bh,hot=c.e>=3&&r>mean*2;
+    ctx.fillStyle=hot?'#f85149':'#bc8cff';ctx.fillRect(x,y,bw,bh);
+    if(i%Math.max(1,Math.ceil(labels.length/20))===0){ctx.fillStyle='#8b949e';ctx.fillText(l,x,sY+cH+14);}
+    if(hot){ctx.fillStyle='#f85149';ctx.textAlign='center';ctx.fillText(l,x+bw/2,y-4);ctx.textAlign='left';}
+    hits.push({type:'bar',x,y:sY,w:bw,h:cH,tooltip:`<div class="tt-title">Channel ${escHtml(l)}</div><div class="tt-row"><span class="tt-key">CRC/Status 에러</span><span class="tt-val ${hot?'tt-error':''}">${c.e} / ${c.t} (${(r*100).toFixed(2)}%)</span></div><div class="tt-row"><span class="tt-key">전체 평균</span><span class="tt-val">${(mean*100).toFixed(2)}%</span></div>`});
+  });
+  const my=sY+cH-(mean/maxRate)*cH;
+  ctx.strokeStyle='#3fb950';ctx.setLineDash([4,4]);ctx.beginPath();ctx.moveTo(sX,my);ctx.lineTo(w,my);ctx.stroke();ctx.setLineDash([]);
+  ctx.fillStyle='#3fb950';ctx.fillText(`평균 ${(mean*100).toFixed(2)}%`,w-80,my-4);
+  ctx.fillStyle='#8b949e';ctx.fillText('Channel →',w/2-25,h-4);
+}
+
+function drawHeatmap(){
+  const sc=getStreamCol(),ecCol=detectedFields.eventCounter,rssiCol=detectedFields.rssi,dc=getDirCol();
+  const c=document.getElementById('chHeat');if(!c)return;
+  const ctx2=c.getContext('2d'),dpr=window.devicePixelRatio||1;
+  // Rows = stream+direction combos
+  const combos=[];
+  const vis=getVisibleData();
+  const comboSet=new Set();
+  vis.forEach(r=>{const key=getStreamId(r)+'|'+(dc!==undefined?r[dc]:'');if(!comboSet.has(key)){comboSet.add(key);combos.push({sid:getStreamId(r),dir:dc!==undefined?r[dc]:null});}});
+  combos.sort((a,b)=>a.sid.localeCompare(b.sid)||(a.dir||'').localeCompare(b.dir||''));
+
+  const rowH=Math.max(16,Math.min(28,200/combos.length));
+  const totalH=combos.length*rowH+40;
+  const w=c.parentElement.clientWidth-32;
+  c.width=w*dpr;c.height=totalH*dpr;c.style.width=w+'px';c.style.height=totalH+'px';ctx2.scale(dpr,dpr);
+  const hits=[];chartHitBoxes['chHeat']=hits;
+  c.addEventListener('mousemove',e=>chartMM('chHeat',e));c.addEventListener('mouseleave',()=>hideTooltip());
+
+  const allEC=vis.map(r=>parseInt(r[ecCol])).filter(v=>!isNaN(v));
+  const minC=Math.min(...allEC),maxC=Math.max(...allEC);
+  const bSize=Math.ceil((maxC-minC+1)/Math.min(120,maxC-minC+1))||1,cols=Math.ceil((maxC-minC+1)/bSize);
+  const sX=100;
+
+  const grid={};
+  combos.forEach(c2=>{grid[c2.sid+'|'+(c2.dir||'')]=new Array(cols).fill(null).map(()=>({sum:0,count:0}));});
+  vis.forEach(r=>{const key=getStreamId(r)+'|'+(dc!==undefined?r[dc]:'');const ec=parseInt(r[ecCol]),rssi=parseInt(r[rssiCol]);if(isNaN(ec)||isNaN(rssi))return;const bi=Math.min(Math.floor((ec-minC)/bSize),cols-1);grid[key][bi].sum+=rssi;grid[key][bi].count++;});
+
+  let rMin=-80,rMax=-30;
+  for(const cells of Object.values(grid))cells.forEach(cell=>{if(cell.count>0){const avg=cell.sum/cell.count;rMin=Math.min(rMin,avg);rMax=Math.max(rMax,avg);}});
+
+  const cellW=(w-sX-10)/cols;
+  ctx2.fillStyle='#161b22';ctx2.fillRect(0,0,w,totalH);
+  combos.forEach((combo,si)=>{
+    const key=combo.sid+'|'+(combo.dir||'');const y=5+si*rowH;
+    const col=getColor(combo.sid,combo.dir);
+    ctx2.fillStyle=col.fg;ctx2.font='10px Segoe UI';ctx2.textAlign='right';
+    const label=groupShort(combo.sid,combo.dir);
+    ctx2.fillText(label,sX-6,y+rowH/2+3);ctx2.textAlign='left';
+    grid[key].forEach((cell,ci)=>{
+      const x=sX+ci*cellW;
+      if(cell.count===0){ctx2.fillStyle='#0d1117';}
+      else{const avg=cell.sum/cell.count;const t=(avg-rMin)/(rMax-rMin||1);ctx2.fillStyle=`hsl(${t*120},70%,${35+t*25}%)`;}
+      ctx2.fillRect(x,y,cellW+0.5,rowH-1);
+      if(cell.count>0)hits.push({type:'rect',x,y,w:cellW,h:rowH-1,tooltip:`<div class="tt-title" style="color:${col.fg}">${escHtml(combo.sid)} ${escHtml(combo.dir||'')}</div><div class="tt-row"><span class="tt-key">Events</span><span class="tt-val">${minC+ci*bSize}–${minC+(ci+1)*bSize-1}</span></div><div class="tt-row"><span class="tt-key">Avg RSSI</span><span class="tt-val">${(cell.sum/cell.count).toFixed(1)} dBm</span></div><div class="tt-row"><span class="tt-key">Packets</span><span class="tt-val">${cell.count}</span></div>`});
+    });
+  });
+  // Legend
+  const lgX=sX,lgY=totalH-14,lgW=180;
+  for(let i=0;i<lgW;i++){const t=i/lgW;ctx2.fillStyle=`hsl(${t*120},70%,${35+t*25}%)`;ctx2.fillRect(lgX+i,lgY,1,10);}
+  ctx2.fillStyle='#8b949e';ctx2.font='10px Segoe UI';ctx2.textAlign='right';ctx2.fillText(`${rMin.toFixed(0)} dBm (약)`,lgX-8,lgY+9);ctx2.textAlign='left';ctx2.fillText(`${rMax.toFixed(0)} dBm (강)`,lgX+lgW+8,lgY+9);
+}
+
+// ============================================================
+//  TIMELINE (Canvas, with direction sub-lanes)
+// ============================================================
+function buildTimeline() {
+  const sc=getStreamCol(),ecCol=detectedFields.eventCounter,dc=getDirCol();
+  if(sc===null||ecCol===undefined){document.getElementById('tlToolbar').innerHTML='<span style="color:#8b949e;">Timeline requires CIS/BIS ID and Event Counter.</span>';return;}
+
+  let tb=`<div class="tl-mode-group">`;
+  tb+=`<button class="tl-mode-btn${tlMode==='grid'?' active':''}" data-mode="grid">ISO Event Grid</button>`;
+  tb+=`<button class="tl-mode-btn${tlMode==='rssi'?' active':''}" data-mode="rssi">RSSI</button>`;
+  tb+=`<button class="tl-mode-btn${tlMode==='channel'?' active':''}" data-mode="channel">Channel</button>`;
+  tb+=`<button class="tl-mode-btn${tlMode==='pairing'?' active':''}" data-mode="pairing">Packet Pairing</button>`;
+  tb+=`</div>`;
+  tb+=`<button class="btn btn-sm" id="btnTlReset">Reset Zoom</button>`;
+  tb+=`<button class="btn btn-sm" id="btnTlSelApply" style="display:none;">Filter Selection → Table</button>`;
+  tb+=`<div class="tl-legend" id="tlLegend"></div>`;
+  tb+=`<span class="tl-info">Scroll=zoom · Drag=pan · Shift+drag=select</span>`;
+  document.getElementById('tlToolbar').innerHTML=tb;
+
+  // Mode buttons
+  document.querySelectorAll('.tl-mode-btn').forEach(btn=>{
+    btn.addEventListener('click',()=>{
+      tlMode=btn.dataset.mode;
+      document.querySelectorAll('.tl-mode-btn').forEach(b=>b.classList.remove('active'));
+      btn.classList.add('active');
+      tlZoom=1;tlPanX=0;drawTimeline();
+    });
+  });
+
+  document.getElementById('btnTlReset').onclick=()=>{tlZoom=1;tlPanX=0;tlSelActive=false;document.getElementById('tlSelection').classList.remove('active');document.getElementById('btnTlSelApply').style.display='none';drawTimeline();};
+  document.getElementById('btnTlSelApply').onclick=()=>{
+    if(!tlSelActive)return;
+    const wrap=document.getElementById('tlCanvasWrap'),cW=wrap.clientWidth,labelW=120,pad=20;
+    const chartW=(cW-labelW-pad*2)*tlZoom;
+    const vis=getVisibleData(),allC=vis.map(r=>parseInt(r[ecCol])).filter(v=>!isNaN(v));
+    const minC=Math.min(...allC),maxC=Math.max(...allC),range=maxC-minC||1;
+    const x1=Math.min(tlSelStartX,tlSelEndX),x2=Math.max(tlSelStartX,tlSelEndX);
+    const c1=minC+((x1-labelW-pad+tlPanX)/chartW)*range,c2=minC+((x2-labelW-pad+tlPanX)/chartW)*range;
+    const allowed=new Set();rawData.forEach(r=>{const v=parseInt(r[ecCol]);if(!isNaN(v)&&v>=Math.floor(c1)&&v<=Math.ceil(c2))allowed.add(r[ecCol]);});
+    if(allowed.size>0){columnFilters[ecCol]=allowed;updateFilterInd();applyFilters();switchTab('table');}
+  };
+
+  tlZoom=1;tlPanX=0;
+  drawTimeline();
+  if(!tlEventsSetup){setupTimelineEvents();tlEventsSetup=true;}
+}
+
+function drawTimeline() {
+  const lg=document.getElementById('tlLegend'); if(lg&&tlMode!=='grid') lg.innerHTML='';
+  if (tlMode === 'grid') { drawTimelineGrid(); return; }
+  if (tlMode === 'pairing') { drawTimelinePairing(); return; }
+  // RSSI or Channel mode: X=Timestamp, Y=RSSI or Channel, per stream+direction
+  const wrap=document.getElementById('tlCanvasWrap');
+  const canvas=document.getElementById('tlCanvas');
+  const ctx=canvas.getContext('2d');
+  const dpr=window.devicePixelRatio||1;
+  const cW=wrap.clientWidth,cH=wrap.clientHeight||400;
+  canvas.width=cW*dpr;canvas.height=cH*dpr;canvas.style.width=cW+'px';canvas.style.height=cH+'px';ctx.scale(dpr,dpr);
+
+  tlHitBoxes=[];
+  const sc=getStreamCol(),ecCol=detectedFields.eventCounter,dc=getDirCol(),tsCol=detectedFields.timestamp;
+  const yCol = tlMode==='rssi' ? detectedFields.rssi : detectedFields.channel;
+  const yLabel = tlMode==='rssi' ? 'RSSI (dBm)' : 'Channel';
+  const vis=getVisibleData();
+  if(vis.length===0||yCol===undefined){ctx.fillStyle='#8b949e';ctx.font='14px Segoe UI';ctx.fillText(yCol===undefined?`No ${yLabel} column detected`:'No visible packets',cW/2-80,cH/2);return;}
+
+  // Parse X values (timestamp) and Y values
+  const parsed=[];
+  vis.forEach((r,vi)=>{
+    const oi=vis._oi[vi];
+    let xVal;
+    if(tsCol!==undefined){
+      xVal=parseFloat(r[tsCol].replace(/[^0-9.\-]/g,''));
+      if(r[tsCol].includes('us')||r[tsCol].includes('µs')) xVal/=1000;
+    } else {
+      xVal=parseInt(r[ecCol])||0; // fallback to event counter
+    }
+    const yVal=parseFloat(r[yCol]);
+    if(isNaN(xVal)||isNaN(yVal))return;
+    parsed.push({x:xVal, y:yVal, sid:getStreamId(r), dir:dc!==undefined?r[dc]:null, ec:parseInt(r[ecCol])||0, oi, row:r, isErr:errorRows.has(oi)});
+  });
+  if(parsed.length===0)return;
+
+  const labelW=60, pad=20, topPad=30, botPad=30;
+  const chartW=(cW-labelW-pad*2)*tlZoom;
+  const chartH=cH-topPad-botPad;
+
+  const xMin=Math.min(...parsed.map(p=>p.x)),xMax=Math.max(...parsed.map(p=>p.x)),xRange=xMax-xMin||1;
+  let yMin,yMax;
+  if(tlMode==='rssi'){
+    yMin=Math.min(...parsed.map(p=>p.y))-2; yMax=Math.max(...parsed.map(p=>p.y))+2;
+  } else {
+    yMin=Math.min(...parsed.map(p=>p.y))-1; yMax=Math.max(...parsed.map(p=>p.y))+1;
+  }
+  const yRange=yMax-yMin||1;
+
+  // Background
+  ctx.fillStyle='#0d1117';ctx.fillRect(0,0,cW,cH);
+
+  // Y axis grid + labels
+  ctx.strokeStyle='#161b22';ctx.fillStyle='#484f58';ctx.font='10px Segoe UI';
+  const ySteps = tlMode==='channel' ? Math.min(yRange,20) : 5;
+  for(let i=0;i<=ySteps;i++){
+    const yv=yMin+(yRange*i/ySteps);
+    const py=topPad+chartH-(i/ySteps)*chartH;
+    ctx.beginPath();ctx.moveTo(labelW,py);ctx.lineTo(cW,py);ctx.stroke();
+    ctx.textAlign='right';ctx.fillText(tlMode==='channel'?Math.round(yv):yv.toFixed(0),labelW-4,py+3);
+  }
+  ctx.textAlign='left';
+
+  // Y axis title
+  ctx.save();ctx.translate(12,topPad+chartH/2);ctx.rotate(-Math.PI/2);
+  ctx.fillStyle='#8b949e';ctx.font='11px Segoe UI';ctx.textAlign='center';ctx.fillText(yLabel,0,0);
+  ctx.restore();ctx.textAlign='left';
+
+  // Clip chart area
+  ctx.save();ctx.beginPath();ctx.rect(labelW,topPad-5,cW-labelW,chartH+10);ctx.clip();
+
+  // X axis grid
+  const visXMin=xMin+(tlPanX/chartW)*xRange,visXMax=xMin+((tlPanX+cW-labelW)/chartW)*xRange;
+  const xGridStep=Math.pow(10,Math.floor(Math.log10(Math.max(0.001,(visXMax-visXMin)/8))));
+  const xGridStart=Math.floor(visXMin/xGridStep)*xGridStep;
+  for(let g=xGridStart;g<=visXMax+xGridStep;g+=xGridStep){
+    const px=labelW+pad+((g-xMin)/xRange)*chartW-tlPanX;
+    if(px<labelW||px>cW)continue;
+    ctx.strokeStyle='#161b22';ctx.beginPath();ctx.moveTo(px,topPad);ctx.lineTo(px,topPad+chartH);ctx.stroke();
+  }
+
+  // Draw connecting lines per stream+direction, then dots
+  const groups={};
+  parsed.forEach(p=>{const key=p.sid+'|'+(p.dir||'');if(!groups[key])groups[key]=[];groups[key].push(p);});
+
+  for(const[key,pts]of Object.entries(groups)){
+    const col=getColor(pts[0].sid,pts[0].dir);
+    // Line
+    ctx.strokeStyle=col.fg;ctx.lineWidth=1;ctx.globalAlpha=0.3;ctx.beginPath();
+    let first=true;
+    pts.forEach(p=>{
+      const px=labelW+pad+((p.x-xMin)/xRange)*chartW-tlPanX;
+      const py=topPad+chartH-((p.y-yMin)/yRange)*chartH;
+      if(px<labelW-20||px>cW+20)return;
+      if(first){ctx.moveTo(px,py);first=false;}else ctx.lineTo(px,py);
+    });
+    ctx.stroke();ctx.globalAlpha=1;
+
+    // Dots
+    pts.forEach(p=>{
+      const px=labelW+pad+((p.x-xMin)/xRange)*chartW-tlPanX;
+      const py=topPad+chartH-((p.y-yMin)/yRange)*chartH;
+      if(px<labelW-5||px>cW+5)return;
+      if(p.isErr){
+        ctx.fillStyle='#f85149';ctx.beginPath();ctx.arc(px,py,4,0,Math.PI*2);ctx.fill();
+        ctx.strokeStyle='#da3633';ctx.lineWidth=1;ctx.beginPath();ctx.arc(px,py,4,0,Math.PI*2);ctx.stroke();
+      } else {
+        ctx.fillStyle=col.fg;ctx.globalAlpha=0.8;
+        ctx.beginPath();ctx.arc(px,py,Math.max(2,3/Math.sqrt(tlZoom)),0,Math.PI*2);ctx.fill();
+        ctx.globalAlpha=1;
+      }
+      tlHitBoxes.push({x:px,y:py,r:5,origIdx:p.oi,sid:p.sid,dir:p.dir||'',ec:p.ec,isErr:p.isErr,hasGap:false,gap:null,row:p.row,yVal:p.y});
+    });
+  }
+
+  ctx.restore(); // unclip
+
+  // X axis labels
+  ctx.fillStyle='#484f58';ctx.font='10px Segoe UI';
+  for(let g=xGridStart;g<=visXMax+xGridStep;g+=xGridStep){
+    const px=labelW+pad+((g-xMin)/xRange)*chartW-tlPanX;
+    if(px<labelW||px>cW)continue;
+    ctx.fillText(g.toFixed(1),px-12,cH-4);
+  }
+  ctx.fillStyle='#8b949e';ctx.font='10px Segoe UI';
+  ctx.fillText(tsCol!==undefined?'Timestamp (ms) →':'Event Counter →',cW/2-40,cH-4);
+
+  // Zoom indicator
+  if(tlZoom>1){ctx.fillStyle='#484f58';ctx.font='10px Segoe UI';ctx.fillText(`Zoom: ${tlZoom.toFixed(1)}x`,cW-80,14);}
+
+  // Legend (stream+direction)
+  let lgX=labelW+pad+10,lgY=14;
+  for(const[key,pts]of Object.entries(groups)){
+    const col=getColor(pts[0].sid,pts[0].dir);
+    ctx.fillStyle=col.fg;ctx.beginPath();ctx.arc(lgX,lgY,4,0,Math.PI*2);ctx.fill();
+    const label=pts[0].sid+(pts[0].dir?' '+pts[0].dir:'');
+    ctx.font='10px Segoe UI';ctx.fillText(label.length>20?label.substring(0,20)+'…':label,lgX+8,lgY+3);
+    lgX+=ctx.measureText(label.length>20?label.substring(0,20)+'…':label).width+22;
+    if(lgX>cW-100){lgX=labelW+pad+10;lgY+=14;}
+  }
+}
+
+// ========== PAIRING VIEW ==========
+// X = Event Counter, per CIS: shows C→P and P→C side by side
+// Missing packets shown as hollow red circles
+function drawTimelinePairing() {
+  const wrap=document.getElementById('tlCanvasWrap');
+  const canvas=document.getElementById('tlCanvas');
+  const ctx=canvas.getContext('2d');
+  const dpr=window.devicePixelRatio||1;
+  const cW=wrap.clientWidth,cH=wrap.clientHeight||400;
+  canvas.width=cW*dpr;canvas.height=cH*dpr;canvas.style.width=cW+'px';canvas.style.height=cH+'px';ctx.scale(dpr,dpr);
+
+  tlHitBoxes=[];
+  const sc=getStreamCol(),ecCol=detectedFields.eventCounter,dc=getDirCol();
+  const vis=getVisibleData();
+  if(vis.length===0||dc===undefined){ctx.fillStyle='#8b949e';ctx.font='14px Segoe UI';ctx.fillText(dc===undefined?'Pairing view requires Direction column':'No visible packets',cW/2-100,cH/2);return;}
+
+  // Build per-stream, per-event-counter map: which directions have packets?
+  const visStreamIds=[...activeStreams].sort();
+  const dirVals=[...new Set(vis.map(r=>r[dc]))].sort();
+  if(dirVals.length<2){ctx.fillStyle='#8b949e';ctx.font='14px Segoe UI';ctx.fillText('Need at least 2 directions for pairing',cW/2-100,cH/2);return;}
+
+  // Classify directions by sender (same rule as everywhere else, overridable in Column Mapping)
+  const dir_cToP=dirVals.find(d=>isCtoPDir(d))??dirVals[0], dir_pToC=dirVals.find(d=>!isCtoPDir(d))??dirVals[1];
+
+  // Per stream: map event counter -> {cToP: [rows], pToC: [rows]}
+  const streamData={};
+  visStreamIds.forEach(sid=>{streamData[sid]={};});
+  vis.forEach((r,vi)=>{
+    const sid=getStreamId(r),ec=parseInt(r[ecCol]),dir=r[dc],oi=vis._oi[vi];
+    if(isNaN(ec)||!streamData[sid])return;
+    if(!streamData[sid][ec])streamData[sid][ec]={cToP:[],pToC:[],allRows:[]};
+    const bucket=streamData[sid][ec];
+    if(dir===dir_cToP)bucket.cToP.push({oi,row:r,isErr:errorRows.has(oi)});
+    else if(dir===dir_pToC)bucket.pToC.push({oi,row:r,isErr:errorRows.has(oi)});
+    bucket.allRows.push({oi,row:r,dir,isErr:errorRows.has(oi)});
+  });
+
+  // Layout: one row per stream, 2 sub-rows (C→P and P→C)
+  const labelW=120, pad=20, topPad=30, botPad=25;
+  const streamCount=visStreamIds.length;
+  const rowH=Math.min(80,Math.max(40,(cH-topPad-botPad)/streamCount));
+  const subH=rowH/2-4;
+
+  // X range (event counters)
+  const allEC=[];
+  for(const sid of visStreamIds)for(const ec in streamData[sid])allEC.push(parseInt(ec));
+  if(allEC.length===0)return;
+  const ecMin=Math.min(...allEC),ecMax=Math.max(...allEC),ecRange=ecMax-ecMin||1;
+  const chartW=(cW-labelW-pad*2)*tlZoom;
+
+  // Background
+  ctx.fillStyle='#0d1117';ctx.fillRect(0,0,cW,cH);
+
+  // Clip
+  ctx.save();ctx.beginPath();ctx.rect(labelW,0,cW-labelW,cH);ctx.clip();
+
+  // X grid
+  const visMin=ecMin+(tlPanX/chartW)*ecRange,visMax=ecMin+((tlPanX+cW-labelW)/chartW)*ecRange;
+  const gridStep=Math.max(1,Math.pow(10,Math.floor(Math.log10(Math.max(1,(visMax-visMin)/10)))));
+  const gridStart=Math.floor(visMin/gridStep)*gridStep;
+  ctx.strokeStyle='#161b22';ctx.fillStyle='#484f58';ctx.font='10px Segoe UI';
+  for(let g=gridStart;g<=visMax+gridStep;g+=gridStep){
+    const px=labelW+pad+((g-ecMin)/ecRange)*chartW-tlPanX;
+    if(px<labelW||px>cW)continue;
+    ctx.beginPath();ctx.moveTo(px,topPad);ctx.lineTo(px,cH-botPad);ctx.stroke();
+    ctx.fillText(Math.round(g),px-8,cH-8);
+  }
+
+  // Track missing packet stats
+  let totalMissingCtoP=0, totalMissingPtoC=0;
+
+  // Draw per stream
+  visStreamIds.forEach((sid,si)=>{
+    const yBase=topPad+si*rowH;
+    const yCtoP=yBase+subH/2+2;
+    const yPtoC=yBase+subH+subH/2+6;
+    const baseCol=streamColorCache[sid];
+    const colCtoP=getColor(sid,dir_cToP);
+    const colPtoC=getColor(sid,dir_pToC);
+
+    // Row background
+    ctx.fillStyle=baseCol?baseCol.baseBg:'rgba(255,255,255,0.02)';
+    ctx.fillRect(labelW,yBase,cW-labelW,rowH);
+    // Separator
+    ctx.strokeStyle='#1c2028';ctx.lineWidth=1;
+    ctx.beginPath();ctx.moveTo(labelW,yBase+rowH);ctx.lineTo(cW,yBase+rowH);ctx.stroke();
+    // Sub-row divider (dashed)
+    ctx.strokeStyle='#161b22';ctx.setLineDash([2,3]);
+    ctx.beginPath();ctx.moveTo(labelW,yBase+rowH/2);ctx.lineTo(cW,yBase+rowH/2);ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Draw events
+    const events=streamData[sid];
+    for(const ecStr in events){
+      const ec=parseInt(ecStr);
+      const px=labelW+pad+((ec-ecMin)/ecRange)*chartW-tlPanX;
+      if(px<labelW-5||px>cW+5)continue;
+      const ev=events[ecStr];
+      const hasCtoP=ev.cToP.length>0, hasPtoC=ev.pToC.length>0;
+      const ctoPErr=ev.cToP.some(p=>p.isErr), ptoCErr=ev.pToC.some(p=>p.isErr);
+
+      // C→P dot (top sub-row)
+      if(hasCtoP){
+        ctx.fillStyle=ctoPErr?'#f85149':colCtoP.fg;
+        ctx.beginPath();ctx.arc(px,yCtoP,Math.max(2,3/Math.sqrt(tlZoom)),0,Math.PI*2);ctx.fill();
+        if(ctoPErr){ctx.strokeStyle='#da3633';ctx.lineWidth=1;ctx.beginPath();ctx.arc(px,yCtoP,4,0,Math.PI*2);ctx.stroke();}
+      } else {
+        // MISSING C→P: hollow red circle
+        totalMissingCtoP++;
+        ctx.strokeStyle='#f85149';ctx.lineWidth=2;
+        ctx.beginPath();ctx.arc(px,yCtoP,4,0,Math.PI*2);ctx.stroke();
+        // X mark inside
+        ctx.beginPath();ctx.moveTo(px-2,yCtoP-2);ctx.lineTo(px+2,yCtoP+2);ctx.moveTo(px+2,yCtoP-2);ctx.lineTo(px-2,yCtoP+2);ctx.stroke();
+      }
+
+      // P→C dot (bottom sub-row)
+      if(hasPtoC){
+        ctx.fillStyle=ptoCErr?'#f85149':colPtoC.fg;
+        ctx.beginPath();ctx.arc(px,yPtoC,Math.max(2,3/Math.sqrt(tlZoom)),0,Math.PI*2);ctx.fill();
+        if(ptoCErr){ctx.strokeStyle='#da3633';ctx.lineWidth=1;ctx.beginPath();ctx.arc(px,yPtoC,4,0,Math.PI*2);ctx.stroke();}
+      } else {
+        // MISSING P→C: hollow red circle
+        totalMissingPtoC++;
+        ctx.strokeStyle='#f85149';ctx.lineWidth=2;
+        ctx.beginPath();ctx.arc(px,yPtoC,4,0,Math.PI*2);ctx.stroke();
+        ctx.beginPath();ctx.moveTo(px-2,yPtoC-2);ctx.lineTo(px+2,yPtoC+2);ctx.moveTo(px+2,yPtoC-2);ctx.lineTo(px-2,yPtoC+2);ctx.stroke();
+      }
+
+      // Vertical connector if both exist (pairing line)
+      if(hasCtoP&&hasPtoC){
+        ctx.strokeStyle=baseCol?baseCol.base:'#30363d';ctx.lineWidth=0.5;ctx.globalAlpha=0.3;
+        ctx.beginPath();ctx.moveTo(px,yCtoP+3);ctx.lineTo(px,yPtoC-3);ctx.stroke();
+        ctx.globalAlpha=1;
+      }
+
+      // Hit boxes for both positions
+      const makeTooltip=(dirLabel,dirPkts,otherExists,otherDir)=>{
+        let tt=`<div class="tt-title" style="color:${getColor(sid,dirLabel).fg}">${escHtml(sid)} — Event ${ec}</div>`;
+        tt+=`<div class="tt-row"><span class="tt-key">Direction</span><span class="tt-val">${escHtml(dirLabel)}</span></div>`;
+        if(dirPkts.length>0){
+          const r2=dirPkts[0].row;
+          headers.forEach((h2,ci)=>{if(ci!==sc&&ci!==ecCol&&ci!==dc)tt+=`<div class="tt-row"><span class="tt-key">${escHtml(h2)}</span><span class="tt-val">${escHtml(r2[ci]||'')}</span></div>`;});
+          if(dirPkts[0].isErr)tt+=`<div class="tt-error" style="margin-top:4px;">CRC/Status Error</div>`;
+        } else {
+          tt+=`<div class="tt-error" style="margin-top:4px;font-weight:600;">MISSING — ${escHtml(otherDir)} exists but ${escHtml(dirLabel)} is absent</div>`;
+        }
+        if(!otherExists)tt+=`<div style="color:#d29922;margin-top:2px;">${escHtml(otherDir)} also missing for this event</div>`;
+        tt+=``;
+        return tt;
+      };
+
+      tlHitBoxes.push({x:px,y:yCtoP,r:5,origIdx:hasCtoP?ev.cToP[0].oi:(hasPtoC?ev.pToC[0].oi:-1),sid,dir:dir_cToP,ec,isErr:ctoPErr,isMissing:!hasCtoP,hasGap:false,gap:null,row:hasCtoP?ev.cToP[0].row:(hasPtoC?ev.pToC[0].row:null),
+        tooltip:makeTooltip(dir_cToP,ev.cToP,hasPtoC,dir_pToC)});
+      tlHitBoxes.push({x:px,y:yPtoC,r:5,origIdx:hasPtoC?ev.pToC[0].oi:(hasCtoP?ev.cToP[0].oi:-1),sid,dir:dir_pToC,ec,isErr:ptoCErr,isMissing:!hasPtoC,hasGap:false,gap:null,row:hasPtoC?ev.pToC[0].row:(hasCtoP?ev.cToP[0].row:null),
+        tooltip:makeTooltip(dir_pToC,ev.pToC,hasCtoP,dir_cToP)});
+    }
+  });
+
+  ctx.restore(); // unclip
+
+  // Labels
+  ctx.fillStyle='#0d1117';ctx.fillRect(0,0,labelW,cH);
+  visStreamIds.forEach((sid,si)=>{
+    const yBase=topPad+si*rowH;
+    const yCtoP=yBase+subH/2+2;
+    const yPtoC=yBase+subH+subH/2+6;
+    const baseCol=streamColorCache[sid];
+    const colCtoP=getColor(sid,dir_cToP);
+    const colPtoC=getColor(sid,dir_pToC);
+
+    // Stream group bg
+    ctx.fillStyle=baseCol?baseCol.baseBg:'transparent';
+    ctx.fillRect(0,yBase,labelW,rowH);
+    ctx.strokeStyle=baseCol?baseCol.base:'#30363d';ctx.lineWidth=2;
+    ctx.beginPath();ctx.moveTo(labelW-2,yBase);ctx.lineTo(labelW-2,yBase+rowH);ctx.stroke();
+
+    // Stream ID
+    ctx.fillStyle=baseCol?baseCol.base:'#c9d1d9';ctx.font='bold 11px Segoe UI';ctx.textAlign='right';
+    ctx.fillText(sid,labelW-8,yBase+12);
+
+    // Direction labels
+    ctx.font='10px Segoe UI';
+    ctx.fillStyle=colCtoP.fg;ctx.fillText('C→P',labelW-8,yCtoP+3);
+    ctx.fillStyle=colPtoC.fg;ctx.fillText('P→C',labelW-8,yPtoC+3);
+  });
+  ctx.textAlign='left';
+
+  // Bottom
+  ctx.fillStyle='#8b949e';ctx.font='10px Segoe UI';ctx.fillText('Event Counter →',cW/2-40,cH-4);
+
+  // Zoom
+  if(tlZoom>1){ctx.fillStyle='#484f58';ctx.font='10px Segoe UI';ctx.fillText(`Zoom: ${tlZoom.toFixed(1)}x`,cW-80,topPad-10);}
+
+  // Legend + missing stats
+  const lgX=labelW+pad+10,lgY=topPad-14;
+  ctx.fillStyle='#3fb950';ctx.beginPath();ctx.arc(lgX,lgY,3,0,Math.PI*2);ctx.fill();
+  ctx.fillStyle='#484f58';ctx.font='10px Segoe UI';ctx.fillText('Paired',lgX+7,lgY+3);
+  // Missing marker
+  ctx.strokeStyle='#f85149';ctx.lineWidth=1.5;ctx.beginPath();ctx.arc(lgX+55,lgY,4,0,Math.PI*2);ctx.stroke();
+  ctx.beginPath();ctx.moveTo(lgX+53,lgY-2);ctx.lineTo(lgX+57,lgY+2);ctx.moveTo(lgX+57,lgY-2);ctx.lineTo(lgX+53,lgY+2);ctx.stroke();
+  ctx.fillStyle='#484f58';ctx.fillText('Missing',lgX+63,lgY+3);
+
+  if(totalMissingCtoP>0||totalMissingPtoC>0){
+    ctx.fillStyle='#f85149';ctx.font='bold 10px Segoe UI';
+    ctx.fillText(`Missing C→P: ${totalMissingCtoP}  |  Missing P→C: ${totalMissingPtoC}`,lgX+120,lgY+3);
+  }
+}
+
+// ============================================================
+//  ISO EVENT GRID (Timeline mode)
+//  X = Event Counter, rows = stream × subevent × direction. Each cell is one
+//  packet colored by its Issues-tab outcome; empty cells show a missing
+//  response or a skipped subevent; events missing entirely are shaded.
+// ============================================================
+const GRID_KINDS = {
+  nul:       {label:'Null PDU',        color:'#30363d'},
+  ok:        {label:'OK',              color:'#238636'},
+  retx:      {label:'재전송',           color:'#d29922'},
+  payload:   {label:'Payload 이상',     color:'#58a6ff'},
+  nack:      {label:'NACK (CRC OK)',   color:'#a371f7'},
+  recovered: {label:'CRC → Recovered', color:'#db6d28'},
+  skip:      {label:'SE Skip',         color:'rgba(219,109,40,0.25)', stroke:'#db6d28'},
+  noresp:    {label:'No Response',     color:'rgba(248,81,73,0.3)', stroke:'#f85149'},
+  lost:      {label:'CRC → Lost',      color:'#f85149'},
+};
+const GRID_PRI = Object.keys(GRID_KINDS); // draw order: later kinds stay on top when cells overlap
+let gridModel=null, gridLayout=null;
+
+function buildGridModel(){
+  const f=detectedFields,sc=getStreamCol(),ecCol=f.eventCounter,seCol=f.subevent,dc=getDirCol();
+  const dirs=dc!==undefined?[...new Set(rawData.map(r=>r[dc]))].sort((a,b)=>isCtoPDir(b)-isCtoPDir(a)):[''];
+  const issueByRow=new Map();issues.forEach(it=>{if(!issueByRow.has(it.oi))issueByRow.set(it.oi,[]);issueByRow.get(it.oi).push(it);});
+  const isNull=r=>(f.npi!==undefined&&r[f.npi].trim()==='1')||(f.payloadLen!==undefined&&parseInt(r[f.payloadLen])===0);
+  const streams=new Map(),ord=new Map();
+  let ecMin=Infinity,ecMax=-Infinity,seMin=Infinity,seMax=-Infinity;
+  rawData.forEach((r,oi)=>{
+    const sid=getStreamId(r);if(sc!==null&&!activeStreams.has(sid))return;
+    const ec=parseInt(r[ecCol]);if(isNaN(ec))return;
+    const d=dc!==undefined?r[dc]:'',di=dirs.indexOf(d);
+    let se;
+    if(seCol!==undefined)se=parseInt(r[seCol]);
+    else{const k=sid+'|'+ec+'|'+d;se=(ord.get(k)||0)+1;ord.set(k,se);} // no Subevent column: n-th packet of that direction in the event
+    if(isNaN(se))return;
+    if(!streams.has(sid))streams.set(sid,new Map());
+    const evs=streams.get(sid);if(!evs.has(ec))evs.set(ec,new Map());
+    const ses=evs.get(ec);if(!ses.has(se))ses.set(se,[]);
+    ses.get(se)[di]={oi,row:r,nul:isNull(r),issues:issueByRow.get(oi)||[]};
+    ecMin=Math.min(ecMin,ec);ecMax=Math.max(ecMax,ec);seMin=Math.min(seMin,se);seMax=Math.max(seMax,se);
+  });
+  const cells=[],gaps=[],counts={};
+  streams.forEach((evs,sid)=>{
+    const ecs=[...evs.keys()].sort((a,b)=>a-b);
+    ecs.forEach((ec,i)=>{
+      const ses=evs.get(ec);
+      if(i>0&&ec-ecs[i-1]>1)gaps.push({sid,from:ecs[i-1]+1,to:ec-1});
+      const maxSe=Math.max(...ses.keys());
+      // First data (non-null) subevent per direction: later data packets of that direction are retransmissions
+      const firstSe=dirs.map(()=>Infinity);
+      ses.forEach((pk,se)=>pk.forEach((p,di)=>{if(p&&!p.nul)firstSe[di]=Math.min(firstSe[di],se);}));
+      for(let se=seMin;se<=maxSe;se++){
+        const pk=ses.get(se)||[];
+        dirs.forEach((d,di)=>{
+          const p=pk[di];let kind=null;
+          if(p){
+            const t=new Set(p.issues.map(it=>it.type));
+            kind=t.has('crcLost')?'lost':t.has('crcRecovered')?'recovered':t.has('nack')?'nack'
+              :(t.has('payloadEmpty')||t.has('payloadLen')||t.has('payloadZero'))?'payload':p.nul?'nul':se>firstSe[di]?'retx':'ok';
+          }else if(d&&!isCtoPDir(d)&&pk.some((q,qi)=>q&&isCtoPDir(dirs[qi]))){
+            kind='noresp';
+          }else if(!pk.some(q=>q)){
+            kind='skip';
+          }
+          // A skipped subevent spans every direction row; count it once, like the Issues tab
+          if(kind){cells.push({sid,ec,se,di,kind,p});if(kind!=='skip'||di===0)counts[kind]=(counts[kind]||0)+1;}
+        });
+      }
+    });
+  });
+  cells.sort((a,b)=>GRID_PRI.indexOf(a.kind)-GRID_PRI.indexOf(b.kind));
+  const cellMap=new Map();cells.forEach(c=>cellMap.set(`${c.sid}|${c.ec}|${c.se}|${c.di}`,c));
+  return{src:issues,streamsKey:[...activeStreams].sort().join(','),sids:streamIds.filter(s=>streams.has(s)),dirs,ecMin,ecMax,seMin,seMax,cells,gaps,cellMap,counts};
+}
+
+function drawTimelineGrid(){
+  const wrap=document.getElementById('tlCanvasWrap'),canvas=document.getElementById('tlCanvas'),ctx=canvas.getContext('2d');
+  const dpr=window.devicePixelRatio||1,cW=wrap.clientWidth,cH=wrap.clientHeight||400;
+  canvas.width=cW*dpr;canvas.height=cH*dpr;canvas.style.width=cW+'px';canvas.style.height=cH+'px';ctx.scale(dpr,dpr);
+  tlHitBoxes=[];gridLayout=null;
+  ctx.fillStyle='#0d1117';ctx.fillRect(0,0,cW,cH);
+  if(!gridModel||gridModel.src!==issues||gridModel.streamsKey!==[...activeStreams].sort().join(','))gridModel=buildGridModel();
+  const M=gridModel;
+
+  let lg=GRID_PRI.map(k=>{const g=GRID_KINDS[k];return`<span><i style="background:${g.color};border:1px solid ${g.stroke||g.color};"></i>${g.label} ${M.counts[k]||0}</span>`;}).join('');
+  lg+=`<span><i style="background:rgba(210,153,34,0.3);border:1px solid #d29922;"></i>EC Skip ${M.gaps.length}</span>`;
+  document.getElementById('tlLegend').innerHTML=lg;
+  if(M.sids.length===0){ctx.fillStyle='#8b949e';ctx.font='14px Segoe UI';ctx.fillText('No visible packets',cW/2-60,cH/2);return;}
+
+  const labelW=120,pad=20,topPad=12,botPad=25,blockGap=10;
+  const nSe=M.seMax-M.seMin+1,nDir=M.dirs.length;
+  const rowH=Math.max(4,Math.min(26,(cH-topPad-botPad-blockGap*(M.sids.length-1))/(M.sids.length*nSe*nDir)));
+  const blockH=nSe*nDir*rowH;
+  const ecSpan=M.ecMax-M.ecMin+1,chartW=(cW-labelW-pad*2)*tlZoom,colW=chartW/ecSpan;
+  const xOf=ec=>labelW+pad+(ec-M.ecMin)*colW-tlPanX;
+  const blocks=M.sids.map((sid,i)=>({sid,y0:topPad+i*(blockH+blockGap)})),blockIdx=Object.fromEntries(M.sids.map((s,i)=>[s,i]));
+  const rowY=(bi,se,di)=>blocks[bi].y0+((se-M.seMin)*nDir+di)*rowH;
+  gridLayout={labelW,pad,colW,blocks,blockH,rowH,nDir};
+
+  ctx.save();ctx.beginPath();ctx.rect(labelW,0,cW-labelW,cH);ctx.clip();
+  // Block backgrounds, subevent separators
+  blocks.forEach(b=>{
+    ctx.fillStyle='#161b22';ctx.fillRect(labelW,b.y0,cW-labelW,blockH);
+    ctx.strokeStyle='#21262d';ctx.lineWidth=1;
+    for(let s=1;s<nSe;s++){const y=b.y0+s*nDir*rowH;ctx.beginPath();ctx.moveTo(labelW,y);ctx.lineTo(cW,y);ctx.stroke();}
+  });
+  // Event Counter grid
+  const visMin=M.ecMin+tlPanX/colW,visMax=visMin+(cW-labelW)/colW;
+  const gridStep=Math.max(1,Math.pow(10,Math.floor(Math.log10(Math.max(1,(visMax-visMin)/10)))));
+  ctx.strokeStyle='#21262d';ctx.fillStyle='#484f58';ctx.font='10px Segoe UI';
+  for(let g=Math.floor(visMin/gridStep)*gridStep;g<=visMax+gridStep;g+=gridStep){
+    const px=xOf(g);if(px<labelW||px>cW)continue;
+    ctx.beginPath();ctx.moveTo(px,topPad);ctx.lineTo(px,cH-botPad);ctx.stroke();ctx.fillText(Math.round(g),px-8,cH-botPad+12);
+  }
+  // Events missing entirely (both directions)
+  M.gaps.forEach(g=>{
+    const x1=xOf(g.from),x2=xOf(g.to+1);if(x2<labelW||x1>cW)return;const b=blocks[blockIdx[g.sid]];
+    ctx.fillStyle='rgba(210,153,34,0.3)';ctx.fillRect(x1,b.y0,Math.max(2,x2-x1),blockH);
+    ctx.strokeStyle='#d29922';ctx.strokeRect(x1+0.5,b.y0+0.5,Math.max(1,x2-x1-1),blockH-1);
+  });
+  // Packet cells
+  const cw=Math.max(1,colW-(colW>=4?1:0)),ch=Math.max(1,rowH-1);
+  M.cells.forEach(c=>{
+    const x=xOf(c.ec);if(x+cw<labelW||x>cW)return;
+    const k=GRID_KINDS[c.kind],y=rowY(blockIdx[c.sid],c.se,c.di),big=cw>=5&&ch>=5;
+    // Outlined kinds are translucent; when cells are too narrow for the outline, fill with the solid stroke color instead
+    ctx.fillStyle=k.stroke&&!big?k.stroke:k.color;ctx.fillRect(x,y,cw,ch);
+    if(k.stroke&&big){
+      ctx.strokeStyle=k.stroke;ctx.lineWidth=1;if(c.kind==='skip')ctx.setLineDash([2,2]);
+      ctx.strokeRect(x+0.5,y+0.5,cw-1,ch-1);ctx.setLineDash([]);
+      if(c.kind==='noresp'){ctx.beginPath();ctx.moveTo(x+2,y+2);ctx.lineTo(x+cw-2,y+ch-2);ctx.moveTo(x+cw-2,y+2);ctx.lineTo(x+2,y+ch-2);ctx.stroke();}
+    }
+  });
+  ctx.restore();
+
+  // Labels
+  ctx.fillStyle='#0d1117';ctx.fillRect(0,0,labelW,cH);
+  blocks.forEach((b,bi)=>{
+    const base=getColor(b.sid,null).fg;
+    ctx.strokeStyle=base;ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(labelW-2,b.y0);ctx.lineTo(labelW-2,b.y0+blockH);ctx.stroke();
+    ctx.fillStyle=base;ctx.font='bold 11px Segoe UI';ctx.textAlign='left';ctx.fillText(streamLabel(b.sid),4,b.y0+Math.min(blockH/2+4,11));
+    if(rowH>=9){
+      ctx.font=`${Math.min(10,rowH-1)}px Segoe UI`;ctx.textAlign='right';
+      for(let se=M.seMin;se<=M.seMax;se++)M.dirs.forEach((d,di)=>{ctx.fillStyle=getColor(b.sid,d||null).fg;ctx.fillText(`SE${se}${d?' '+dirShort(d):''}`,labelW-8,rowY(bi,se,di)+rowH/2+3);});
+    }
+  });
+  ctx.textAlign='left';
+  ctx.fillStyle='#8b949e';ctx.font='10px Segoe UI';ctx.fillText('Event Counter →',8,cH-botPad+12);
+  if(tlZoom>1){ctx.fillStyle='#484f58';ctx.fillText(`Zoom: ${tlZoom.toFixed(1)}x`,8,cH-botPad+24);}
+}
+
+function gridHit(mx,my){
+  const L=gridLayout,M=gridModel;if(!L||!M||mx<L.labelW)return null;
+  const ec=M.ecMin+Math.floor((mx-L.labelW-L.pad+tlPanX)/L.colW);
+  const bi=L.blocks.findIndex(b=>my>=b.y0&&my<b.y0+L.blockH);if(bi<0)return null;
+  const sid=L.blocks[bi].sid,ri=Math.floor((my-L.blocks[bi].y0)/L.rowH),se=M.seMin+Math.floor(ri/L.nDir),di=ri%L.nDir;
+  const c=M.cellMap.get(`${sid}|${ec}|${se}|${di}`);
+  if(c)return{tooltip:gridTooltip(c)};
+  const g=M.gaps.find(g=>g.sid===sid&&ec>=g.from&&ec<=g.to);
+  if(g)return{tooltip:`<div class="tt-title" style="color:#d29922">${escHtml(streamLabel(sid))} — Event ${g.from}${g.to>g.from?'–'+g.to:''}</div><div style="color:#d29922;">EC Skip: 이 이벤트의 패킷이 양방향 모두 없음</div>`};
+  return null;
+}
+
+function gridTooltip(c){
+  const f=detectedFields,d=gridModel.dirs[c.di],k=GRID_KINDS[c.kind];
+  const typeLabel=Object.fromEntries(ISSUE_TYPES.map(t=>[t.key,t.label]));
+  const row=(key,val)=>`<div class="tt-row"><span class="tt-key">${escHtml(key)}</span><span class="tt-val">${escHtml(val)}</span></div>`;
+  let tt=`<div class="tt-title" style="color:${getColor(c.sid,d||null).fg}">${escHtml(streamLabel(c.sid))} — Event ${c.ec} · SE${c.se}${d?' · '+dirShort(d):''}</div>`;
+  tt+=`<div class="tt-row"><span class="tt-key">상태</span><span class="tt-val" style="color:${k.stroke||k.color};font-weight:600;">${k.label}</span></div>`;
+  if(c.p){
+    [['sn','SN'],['nesn','NESN'],['npi','NPI'],['crc','CRC'],['status','Status'],['payloadLen','Length'],['channel','Channel'],['rssi','RSSI'],['timestamp','Time']]
+      .forEach(([key,lb])=>{if(f[key]!==undefined)tt+=row(lb,c.p.row[f[key]]||'');});
+    c.p.issues.forEach(it=>{tt+=`<div class="tt-error" style="margin-top:2px;">${escHtml(typeLabel[it.type])}: ${escHtml(it.detail)}</div>`;});
+  }
+  else if(c.kind==='noresp')tt+=`<div class="tt-error">C→P는 송신됐지만 P→C 응답이 캡처되지 않음</div>`;
+  else if(c.kind==='skip')tt+=`<div style="color:#db6d28;">이 Subevent는 양방향 모두 패킷 없음 (이후 Subevent는 있음)</div>`;
+  tt+=``;
+  return tt;
+}
+
+function setupTimelineEvents(){
+  const canvas=document.getElementById('tlCanvas');
+  const sel=document.getElementById('tlSelection');
+
+  canvas.addEventListener('wheel',e=>{
+    e.preventDefault();const rect=canvas.getBoundingClientRect(),mx=e.clientX-rect.left;
+    const old=tlZoom;tlZoom*=e.deltaY<0?1.15:1/1.15;tlZoom=Math.max(1,Math.min(100,tlZoom));
+    const ca=mx-120-20;if(ca>0)tlPanX=(tlPanX+ca)*(tlZoom/old)-ca;
+    tlPanX=Math.max(0,tlPanX);drawTimeline();
+  },{passive:false});
+
+  canvas.addEventListener('mousedown',e=>{
+    const rect=canvas.getBoundingClientRect();
+    if(e.shiftKey){tlSelecting=true;tlSelStartX=e.clientX-rect.left;tlSelEndX=tlSelStartX;sel.style.left=tlSelStartX+'px';sel.style.width='0px';sel.classList.add('active');}
+    else{tlDragging=true;tlDragStartX=e.clientX;tlDragStartPan=tlPanX;canvas.style.cursor='grabbing';}
+  });
+
+  document.addEventListener('mousemove',e=>{
+    if(tlDragging){tlPanX=tlDragStartPan-(e.clientX-tlDragStartX);tlPanX=Math.max(0,tlPanX);drawTimeline();}
+    if(tlSelecting){const rect=canvas.getBoundingClientRect();tlSelEndX=e.clientX-rect.left;const x1=Math.min(tlSelStartX,tlSelEndX),x2=Math.max(tlSelStartX,tlSelEndX);sel.style.left=x1+'px';sel.style.width=(x2-x1)+'px';}
+  });
+
+  document.addEventListener('mouseup',()=>{
+    if(tlDragging){tlDragging=false;document.getElementById('tlCanvas').style.cursor='';}
+    if(tlSelecting){tlSelecting=false;if(Math.abs(tlSelEndX-tlSelStartX)>5){tlSelActive=true;document.getElementById('btnTlSelApply').style.display='';}else{sel.classList.remove('active');tlSelActive=false;document.getElementById('btnTlSelApply').style.display='none';}}
+  });
+
+  canvas.addEventListener('mousemove',e=>{
+    if(tlDragging||tlSelecting)return;
+    const rect=canvas.getBoundingClientRect(),mx=e.clientX-rect.left,my=e.clientY-rect.top;
+    if(tlMode==='grid'){const h=gridHit(mx,my);if(h){showTooltip(e.clientX,e.clientY,h.tooltip);canvas.style.cursor=e.shiftKey?'crosshair':'grab';}else{hideTooltip();canvas.style.cursor=e.shiftKey?'crosshair':'grab';}return;}
+    for(const hb of tlHitBoxes){
+      if(Math.hypot(mx-hb.x,my-hb.y)<hb.r+2){
+        if(hb.tooltip){
+          // Pre-built tooltip (pairing mode)
+          showTooltip(e.clientX,e.clientY,hb.tooltip);
+        } else {
+          // Build tooltip (RSSI/Channel mode)
+          const col=getColor(hb.sid,hb.dir);
+          let tt=`<div class="tt-title" style="color:${col.fg}">${escHtml(hb.sid)} ${escHtml(hb.dir||'')} — Event ${hb.ec}</div>`;
+          if(hb.yVal!==undefined) tt+=`<div class="tt-row"><span class="tt-key">${tlMode==='rssi'?'RSSI':'Channel'}</span><span class="tt-val">${hb.yVal}${tlMode==='rssi'?' dBm':''}</span></div>`;
+          headers.forEach((h,ci)=>{if(ci!==getStreamCol()&&ci!==detectedFields.eventCounter&&ci!==getDirCol()&&ci!==(tlMode==='rssi'?detectedFields.rssi:detectedFields.channel))tt+=`<div class="tt-row"><span class="tt-key">${escHtml(h)}</span><span class="tt-val">${escHtml(hb.row[ci]||'')}</span></div>`;});
+          if(hb.isErr)tt+=`<div class="tt-error" style="margin-top:4px;">CRC/Status Error</div>`;
+          showTooltip(e.clientX,e.clientY,tt);
+        }
+        canvas.style.cursor=e.shiftKey?'crosshair':'grab';return;
+      }
+    }
+    hideTooltip();canvas.style.cursor=e.shiftKey?'crosshair':'grab';
+  });
+
+
+}
+
+// ============================================================
+//  HELPERS
+// ============================================================
+function switchTab(name){
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  document.querySelector(`.tab[data-tab="${name}"]`).classList.add('active');
+  document.getElementById('tablePanel').style.display=name==='table'?'':'none';
+  document.getElementById('filterBar').style.display=name==='table'?'':'none';
+  document.getElementById('issuesPanel').classList.toggle('active',name==='issues');
+  if(name==='issues')renderIssues();
+  document.getElementById('timelinePanel').classList.toggle('active',name==='timeline');
+  if(name==='timeline')requestAnimationFrame(drawTimeline);
+}
+
+// ============================================================
+//  SAMPLE DATA
+// ============================================================
+// Seeded PRNG so the sample (and its injected anomalies) is identical on every load
+function mulberry32(a){return()=>{a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};}
+
+// Realistic CIS capture: 1 CIG, 2 CIS (L/R), ISO interval 10ms, NSE=3, BN=1, FT=1, LE 2M.
+// Each subevent is C→P then P→C. SN/NESN follow ack/retransmit rules; a side whose SDU is
+// already acked sends a null PDU (NPI=1, length 0). The event closes once both SDUs are acked.
+// Injected anomalies (to verify detectors):
+//   - background CRC failures ~3%, 25% on channel 22 (interference), +15% on CIS 0x02 events 100-149 (weak RSSI)
+//   - Peripheral not responding: random 0.5% per subevent, forced at 0x01:57 SE1 and the whole of 0x02:233
+//   - Event Counter skip: CIS 0x02 events 200-202 absent in both directions
+//   - Subevent skip (SE2 not captured): 0x01:80, 0x02:260
+//   - Payload: all-zero C→P at 0x01:120, wrong C→P length at 0x02:310, P→C null instead of audio at 0x01:150 and 0x01:151
+function generateSampleData(){
+  const rnd=mulberry32(20261022);
+  const ISO_INT=10,SUB_INT=1.5,NSE=3,CIS_OFFSET=NSE*SUB_INT,RESP_DELAY=0.7,T0=12;
+  const C2P='Central→Peripheral',P2C='Peripheral→Central',LEN_C2P=120,LEN_P2C=40;
+  const cisIds=['0x01','0x02'];
+  const inject={
+    '0x01:57':{noResp:[1]}, '0x02:233':{noResp:[1,2,3]},
+    '0x01:80':{crcC:[1,2],drop:[2]}, '0x02:260':{crcP:[1,2],drop:[2]},
+    '0x01:120':{zeroPayload:true}, '0x02:310':{badLen:60},
+    '0x01:150':{nullP:true}, '0x01:151':{nullP:true},
+  };
+  const hex=n=>Array.from({length:n},()=>Math.floor(rnd()*256).toString(16).padStart(2,'0').toUpperCase()).join(' ');
+  const rows=[],sn={};cisIds.forEach(c=>sn[c]={c:1,p:1});
+  const push=(t,dir,cis,ev,se,s,ne,npi,ch,rssi,crcFail,len,payload)=>rows.push([String(rows.length+1),(t+(rnd()-0.5)*0.004).toFixed(3)+' ms',dir,'0x00',cis,String(ev),String(se),String(s),String(ne),String(npi),'LE 2M',String(ch),String(rssi),crcFail?'Fail':'OK',String(len),payload]);
+  for(let ev=0;ev<400;ev++){
+    cisIds.forEach((cis,ci)=>{
+      const st=sn[cis];st.c^=1;st.p^=1; // new SDU each event (FT=1)
+      if(cis==='0x02'&&ev>=200&&ev<=202)return;
+      const inj=inject[cis+':'+ev]||{},weak=cis==='0x02'&&ev>=100&&ev<150;
+      let cAck=false,pAck=false;
+      for(let se=1;se<=NSE&&!(cAck&&pAck);se++){
+        const tC=T0+ev*ISO_INT+ci*CIS_OFFSET+(se-1)*SUB_INT;
+        const ch=Math.floor(rnd()*37),pErr=(ch===22?0.25:0.03)+(weak?0.15:0);
+        const rssi=-48-Math.floor(rnd()*12)-(weak?20:0),captured=!(inj.drop||[]).includes(se);
+        // C→P: null PDU once its SDU has been acked
+        const cNull=cAck,cCrcFail=(inj.crcC||[]).includes(se)||rnd()<pErr;
+        const cLen=cNull?0:(inj.badLen||LEN_C2P);
+        const cPayload=cNull?'':inj.zeroPayload?Array(cLen).fill('00').join(' '):hex(cLen);
+        if(captured)push(tC,C2P,cis,ev,se,st.c,pAck?st.p^1:st.p,cNull?1:0,ch,rssi,cCrcFail,cLen,cPayload);
+        const pNoResp=(inj.noResp||[]).includes(se)||rnd()<0.005;
+        if(pNoResp)continue; // Peripheral missed the C→P packet entirely: no response, no ack
+        if(!cCrcFail)cAck=true;
+        // P→C: NESN acks C's SN once received
+        const pNull=pAck||inj.nullP,pCrcFail=(inj.crcP||[]).includes(se)||rnd()<pErr;
+        const pLen=pNull?0:LEN_P2C;
+        if(captured)push(tC+RESP_DELAY,P2C,cis,ev,se,st.p,cAck?st.c^1:st.c,pNull?1:0,ch,rssi-3,pCrcFail,pLen,pNull?'':hex(pLen));
+        if(!pCrcFail)pAck=true;
+      }
+    });
+  }
+  return{headers:['Item','Timestamp','Direction','CIG ID','CIS ID','Event Counter','Subevent','SN','NESN','NPI','PHY','Channel','RSSI','CRC','Payload Length','Payload'],data:rows};
+}
+
+// ============================================================
+//  EXPORT
+// ============================================================
+function exportReport(){
+  const lines=[headers.join(',')];
+  rawData.forEach((row,i)=>{const ex=errorRows.has(i)?' [ERROR]':gapRows.has(i)?` [GAP:${gapRows.get(i).missed}]`:'';lines.push(row.map(c=>`"${c}"`).join(',')+((ex)?`,"${ex}"`:''));});
+  const blob=new Blob([lines.join('\n')],{type:'text/csv'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='ellisys_report.csv';a.click();URL.revokeObjectURL(url);
+}
+
+// ============================================================
+//  COLUMN MAPPING
+//  Shows the auto-detected column for each field and lets the user correct it,
+//  along with how Direction and CRC/Status values are read. Saved per header
+//  set in localStorage, so the next file with the same columns reuses it.
+// ============================================================
+const MAP_FIELDS = [
+  ['cisId','CIS ID','스트림 구분'], ['bisId','BIS ID','스트림 구분 (BIS)'],
+  ['cigId','CIG ID','CIG가 여러 개일 때 구분'], ['bigHandle','BIG Handle','BIG가 여러 개일 때 구분'],
+  ['direction','Direction','No Response, NACK, 방향별 집계'], ['eventCounter','Event Counter','대부분의 검사'],
+  ['subevent','Subevent','Subevent Skip, ISO Event Grid'], ['sn','SN','NACK, 복구/손실 판정'], ['nesn','NESN','NACK, 복구/손실 판정'],
+  ['npi','NPI','Null PDU 판정'], ['crc','CRC','Corrupted'], ['status','Status','Corrupted'],
+  ['payloadLen','Payload Length','Payload 검사, Null PDU 판정'], ['payload','Payload (hex)','All-zero Payload'],
+  ['channel','Channel','채널별 CRC 에러율'], ['rssi','RSSI','RSSI 히트맵'], ['timestamp','Timestamp','Timeline RSSI/Channel'],
+  ['item','Item (#)','이슈 목록 번호'],
+];
+const MAP_STORE = 'ellisysViewer.mapping:';
+let mapDraft = null, mapDirVals = [], mapErrVals = {};
+
+function mappingKey() { return MAP_STORE + headers.slice(0, baseColCount).join('\u0001'); }
+function saveMapping() {
+  const fields = Object.fromEntries(MAP_FIELDS.map(([k]) => [k, detectedFields[k] !== undefined ? headers[detectedFields[k]] : null]));
+  try { localStorage.setItem(mappingKey(), JSON.stringify({ fields, dir: dirOverride, err: errOverride })); } catch (e) {}
+}
+// Apply a saved mapping for this header set; returns false when there is none
+function loadSavedMapping() {
+  let m;
+  try { const v = localStorage.getItem(mappingKey()); if (!v) return false; m = JSON.parse(v); } catch (e) { return false; }
+  MAP_FIELDS.forEach(([k]) => {
+    if (!m.fields || !hasOwn(m.fields, k)) return;
+    const i = m.fields[k] === null ? -1 : headers.indexOf(m.fields[k]);
+    if (i < 0 || i >= baseColCount) delete detectedFields[k]; else detectedFields[k] = i;
+  });
+  dirOverride = m.dir || {}; errOverride = m.err || {}; dirCache.clear();
+  return true;
+}
+function topValues(ci, n) {
+  const c = new Map(); rawData.forEach(r => { const v = (r[ci] ?? '').trim(); c.set(v, (c.get(v) || 0) + 1); });
+  return [...c.entries()].sort((a, b) => b[1] - a[1]).slice(0, n);
+}
+
+function openMapModal() {
+  mapDraft = { fields: Object.fromEntries(MAP_FIELDS.map(([k]) => [k, detectedFields[k]])), dir: { ...dirOverride }, err: { ...errOverride } };
+  renderMapBody();
+  document.getElementById('mapModal').classList.add('open');
+}
+function closeMapModal() { document.getElementById('mapModal').classList.remove('open'); }
+
+function renderMapBody() {
+  const body = document.getElementById('mapBody'), F = mapDraft.fields;
+  const sample = ci => { for (const r of rawData) { const v = r[ci]; if (v) return v.length > 40 ? v.slice(0, 40) + '…' : v; } return ''; };
+  let h = '';
+  if (F.eventCounter === undefined || (F.cisId === undefined && F.bisId === undefined))
+    h += '<div class="warn">CIS/BIS ID와 Event Counter가 있어야 대부분의 검사가 동작합니다. 해당 컬럼을 지정해 주세요.</div>';
+  h += '<table class="map-table"><thead><tr><th>필드</th><th>CSV 컬럼</th><th>예시 값</th><th>쓰이는 곳</th></tr></thead><tbody>';
+  MAP_FIELDS.forEach(([k, label, use]) => {
+    const cur = F[k];
+    h += `<tr><td>${label}</td><td><select data-field="${k}"><option value="">(없음)</option>${headers.slice(0, baseColCount).map((hd, i) => `<option value="${i}"${cur === i ? ' selected' : ''}>${escHtml(hd)}</option>`).join('')}</select></td>`
+      + `<td class="map-sample">${cur !== undefined ? escHtml(sample(cur)) : ''}</td><td class="map-use">${use}</td></tr>`;
+  });
+  h += '</tbody></table>';
+
+  // How Direction values are read (sender side)
+  mapDirVals = F.direction !== undefined ? topValues(F.direction, 8).filter(([v]) => v) : [];
+  if (mapDirVals.length) {
+    h += '<h3>Direction 값 → 송신 측</h3><div class="map-vals">' + mapDirVals.map(([v, c], i) => {
+      const cur = hasOwn(mapDraft.dir, v) ? mapDraft.dir[v] : autoIsCtoP(v) ? 'c' : 'p';
+      return `<label><span class="mv">${escHtml(v)}</span><span class="mc">${c}</span><select data-di="${i}"><option value="c"${cur === 'c' ? ' selected' : ''}>C→P (Central 송신)</option><option value="p"${cur === 'p' ? ' selected' : ''}>P→C (Peripheral 송신)</option></select></label>`;
+    }).join('') + '</div>';
+  }
+  // Which CRC/Status values count as errors
+  mapErrVals = {};
+  [['crc', F.crc], ['status', F.status]].filter(([, ci]) => ci !== undefined).forEach(([kind, ci]) => {
+    mapErrVals[kind] = topValues(ci, 12);
+    h += `<h3>${escHtml(headers[ci])} 값 중 에러로 볼 것</h3><div class="map-vals">` + mapErrVals[kind].map(([v, c], i) => {
+      const cur = hasOwn(mapDraft.err, v) ? mapDraft.err[v] : autoIsError(v, kind);
+      return `<label><input type="checkbox" data-kind="${kind}" data-ei="${i}"${cur ? ' checked' : ''}><span class="mv">${escHtml(v || '(빈 값)')}</span><span class="mc">${c}</span></label>`;
+    }).join('') + '</div>';
+  });
+  body.innerHTML = h;
+
+  body.querySelectorAll('select[data-field]').forEach(s => s.onchange = () => { mapDraft.fields[s.dataset.field] = s.value === '' ? undefined : +s.value; renderMapBody(); });
+  body.querySelectorAll('select[data-di]').forEach(s => s.onchange = () => { mapDraft.dir[mapDirVals[+s.dataset.di][0]] = s.value; });
+  body.querySelectorAll('input[data-ei]').forEach(cb => cb.onchange = () => { mapDraft.err[mapErrVals[cb.dataset.kind][+cb.dataset.ei][0]] = cb.checked; });
+}
+
+document.getElementById('btnColumns').onclick = openMapModal;
+document.getElementById('mapCancel').onclick = closeMapModal;
+document.getElementById('mapReset').onclick = () => {
+  const auto = detectFields(headers.slice(0, baseColCount));
+  mapDraft = { fields: Object.fromEntries(MAP_FIELDS.map(([k]) => [k, auto[k]])), dir: {}, err: {} };
+  renderMapBody();
+};
+document.getElementById('mapApply').onclick = () => {
+  MAP_FIELDS.forEach(([k]) => { if (mapDraft.fields[k] === undefined) delete detectedFields[k]; else detectedFields[k] = mapDraft.fields[k]; });
+  dirOverride = mapDraft.dir; errOverride = mapDraft.err; dirCache.clear();
+  saveMapping(); closeMapModal(); runAnalysis();
+};
+
+// ============================================================
+//  INIT
+// ============================================================
+function loadData(h,d){
+  // Rows must match the header length so derived columns line up
+  d.forEach(r=>{while(r.length<h.length)r.push('');r.length=h.length;});
+  headers=h;rawData=d;baseColCount=h.length;
+  detectedFields=detectFields(headers);dirOverride={};errOverride={};dirCache.clear();
+  loadSavedMapping();
+  document.getElementById('dropzone').classList.add('hidden');
+  document.getElementById('mainView').classList.add('active');
+  ['btnColumns','btnLoad','btnExport'].forEach(id=>document.getElementById(id).style.display='');
+  runAnalysis();
+  // Without a stream ID or Event Counter most checks can't run: ask for the mapping
+  if(detectedFields.eventCounter===undefined||getStreamCol()===null)openMapModal();
+}
+
+// (Re)run every analysis from the current field mapping
+function runAnalysis(){
+  // Drop derived columns from a previous run before deriving them again
+  if(headers.length>baseColCount){headers.length=baseColCount;rawData.forEach(r=>{r.length=baseColCount;});}
+  columnFilters={};closeColFilter();sortCol=-1;issueSel=null;
+  initStreams();analyzeErrors(rawData,detectedFields);analyzeIssues();appendDerivedColumns();
+  filteredData=[...rawData];filteredData._origIndices=rawData.map((_,i)=>i);
+  document.getElementById('filterErrorOnly').checked=false;document.getElementById('filterSearch').value='';
+  document.getElementById('btnClearAllFilters').style.display='none';
+  buildStreamBar();initFilterBar();renderTable();buildTimeline();
+  switchTab('issues');
+  document.getElementById('rowCount').textContent=`${filteredData.length} / ${rawData.length}`;
+  console.log('Fields:',Object.entries(detectedFields).map(([k,v])=>`${k}:"${headers[v]}"`).join(', ')||'none');
+}
+
+// Tabs
+document.querySelectorAll('.tab').forEach(tab=>{tab.addEventListener('click',()=>switchTab(tab.dataset.tab));});
+
+// File handling
+const dz=document.getElementById('dropzone');
+dz.addEventListener('dragover',e=>{e.preventDefault();dz.classList.add('drag-over');});
+dz.addEventListener('dragleave',()=>dz.classList.remove('drag-over'));
+dz.addEventListener('drop',e=>{e.preventDefault();dz.classList.remove('drag-over');if(e.dataTransfer.files[0])readFile(e.dataTransfer.files[0]);});
+document.getElementById('fileInput').addEventListener('change',e=>{if(e.target.files[0])readFile(e.target.files[0]);});
+function readFile(f){const r=new FileReader();r.onload=e=>{const{headers:h,data:d}=parseCSV(e.target.result);if(h.length>0&&d.length>0)loadData(h,d);else alert('Could not parse CSV.');};r.readAsText(f);}
+document.getElementById('btnSample').onclick=()=>{const{headers:h,data:d}=generateSampleData();loadData(h,d);};
+document.getElementById('btnSample2').onclick=()=>{const{headers:h,data:d}=generateSampleData();loadData(h,d);};
+document.getElementById('btnLoad').onclick=()=>{document.getElementById('mainView').classList.remove('active');document.getElementById('dropzone').classList.remove('hidden');['btnColumns','btnLoad','btnExport'].forEach(id=>document.getElementById(id).style.display='none');};
+document.getElementById('btnExport').onclick=exportReport;
+window.addEventListener('resize',()=>{const at=document.querySelector('.tab.active');if(at){if(at.dataset.tab==='timeline')drawTimeline();if(at.dataset.tab==='issues'&&causeOpen)drawCause();}});
+</script>
+</body>
+</html>
