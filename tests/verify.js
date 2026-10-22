@@ -31,7 +31,21 @@ const TRUTH_CONFIGS = [
   { drops: false, bnC: 1, ftC: 3, bnP: 1, ftP: 3, crc: 0.2, seed: 3 },
   { drops: false, bnC: 2, ftC: 1, bnP: 1, ftP: 1, crc: 0.1, seed: 9 },
   { drops: false, mismatch: 0.05, crc: 0.1, seed: 8 }, // sniffer CRC sometimes disagrees with the receiver
+  // BN that doesn't divide NSE: payloads flush in the middle of an event
+  { drops: false, bnC: 3, ftC: 1, bnP: 1, ftP: 1, crc: 0.1, seed: 2 },
+  { drops: false, bnC: 2, ftC: 2, bnP: 2, ftP: 2, nse: 5, sub: 0.88, crc: 0.3, seed: 1 },
+  { drops: false, bnC: 3, ftC: 3, bnP: 3, ftP: 1, crc: 0.3, seed: 1 },
+  { drops: false, bnC: 1, ftC: 2, bnP: 1, ftP: 2, crc: 0.3, seed: 3 },
+  // Capture loss (0x01 events 350-351, 0x02:330 SE2): verdicts for captured payloads must still match
+  { drops: true },
+  { drops: true, seed: 3, crc: 0.2 },
 ];
+// Wider sweep: BN 1–3, FT 1–3, NSE 4–6, CRC 10%/30%, 4 seeds (set FUZZ=1; takes a few minutes)
+if (process.env.FUZZ) {
+  for (const [bnC, ftC, bnP, ftP] of [[1,2,1,2],[2,2,1,2],[1,3,1,3],[2,3,1,2],[1,2,2,2],[2,2,2,2],[3,1,1,1],[3,2,2,2],[3,3,3,1],[2,1,2,1]])
+    for (const nse of [4, 5, 6]) for (const crc of [0.1, 0.3]) for (const seed of [1, 2, 3, 4])
+      TRUTH_CONFIGS.push({ bnC, ftC, bnP, ftP, nse, sub: Math.min(1.1, 4.4 / nse), crc, seed, drops: false });
+}
 
 (async () => {
   const browser = await chromium.launch();
@@ -44,7 +58,7 @@ const TRUTH_CONFIGS = [
   const s1 = await page.evaluate(() => {
     const g = generateSampleData(); loadData(g.headers, g.data, {});
     const counts = {}; issues.forEach(i => counts[i.type] = (counts[i.type] || 0) + 1);
-    const delivery = computeDelivery().map(x => { const n = { first: 0, retx: 0, lost: 0, carry: 0 }; x.list.forEach(e => { if (e.st) n[e.st]++; }); return [n.first, n.retx, n.lost, n.carry]; });
+    const delivery = computeDelivery().map(x => { const n = { first: 0, retx: 0, lost: 0, carry: 0 }; x.list.forEach(e => { if (e.st) n[e.st] += e.n || 1; }); return [n.first, n.retx, n.lost, n.carry]; });
     return { counts, delivery };
   });
   check('sample 1: issue counts unchanged', JSON.stringify(s1.counts) === JSON.stringify(SAMPLE1.counts), s1.counts);
@@ -63,12 +77,13 @@ const TRUTH_CONFIGS = [
         let del = 0, lost = 0;
         m.list.forEach(e => {
           if (e.st === null) return;
-          if (e.st === 'lost') lost++; else del++;
+          const w = e.n || 1; if (e.st === 'lost') lost += w; else del += w;
           const t = byRow.get(e.oi);
           if (t && (e.st !== 'lost') !== t.delivered) bad.push([m.sid, dir, e.ec, e.st, t.delivered]);
         });
         const tDel = tp.filter(x => x.delivered).length, tLost = tp.filter(x => !x.delivered).length;
-        if (del !== tDel || lost !== tLost) bad.push([m.sid, dir, 'count', del, lost, 'truth', tDel, tLost]);
+        // With capture loss, payloads never captured are counted lost by design: only check captured ones
+        if (!opts.drops && (del !== tDel || lost !== tLost)) bad.push([m.sid, dir, 'count', del, lost, 'truth', tDel, tLost]);
       });
       const got = issues.filter(i => /Timing$/.test(i.type)).map(i => `${i.type}|${i.sid}|${i.ec}`).sort();
       const exp = g.truth.timing.map(t => `${t.kind}|${t.sid}|${t.ec}`).sort();
@@ -107,6 +122,38 @@ const TRUTH_CONFIGS = [
     return !issueChecks.anchorTiming.on && !issueChecks.slotTiming.on;
   });
   check('without Timestamp/Direction: timing checks off, views still draw', noTs);
+
+  const robust = await page.evaluate(() => {
+    const out = {};
+    // No SN column with BN=2 on a clean link: no losses
+    let g = generateSampleData2({ drops: false, crc: 0, noResp: 0, inject: false, timing: false });
+    let keep = g.headers.map((h, i) => i).filter(i => !['SN', 'NESN'].includes(g.headers[i]));
+    loadData(keep.map(i => g.headers[i]), g.data.map(r => keep.map(i => r[i])), g.iso);
+    out.noSnLost = computeDelivery().reduce((a, x) => a + x.list.filter(e => e.st === 'lost').reduce((b, e) => b + (e.n || 1), 0), 0);
+    // Absurd BN is clamped to 15 and finishes quickly
+    g = generateSampleData2({ drops: false });
+    let t = performance.now(); loadData(g.headers, g.data, { bnC: 200000, ftC: 2, bnP: 1, ftP: 2 });
+    out.bnClamp = [...linkInfo.values()][0].bn; out.bnMs = performance.now() - t;
+    // One row with a far-off Event Counter doesn't break the analysis
+    g = generateSampleData2({ drops: false }); const bad = [...g.data[5]]; bad[5] = '50000000'; g.data.push(bad);
+    t = performance.now(); loadData(g.headers, g.data, g.iso); out.outlierMs = performance.now() - t; out.outlierIssues = issues.length;
+    // Unit-less timestamps in seconds are recognised and timing still works
+    g = generateSampleData2();
+    const ti = g.headers.indexOf('Timestamp'); g.data.forEach(r => { r[ti] = (parseFloat(r[ti]) / 1000).toFixed(9).replace(/(\d{3})(?=\d)/g, '$1 ').replace(/^(\d+)\.(.*)$/, (m, a, b) => a + '.' + b); });
+    loadData(g.headers, g.data, g.iso);
+    out.autoUnit = tsAutoUnit;
+    out.secTiming = issues.filter(i => /Timing$/.test(i.type)).map(i => `${i.type}|${i.sid}|${i.ec}`).sort().join() === g.truth.timing.map(x => `${x.kind}|${x.sid}|${x.ec}`).sort().join();
+    // Per-capture parameters are not carried over to the next file with the same columns
+    try { localStorage.clear(); } catch (e) {}
+    g = generateSampleData2(); loadData(g.headers, g.data, g.iso); isoUser = { ...isoUser, tolUs: 30 }; saveMapping();
+    g = generateSampleData2(); loadData(g.headers, g.data); out.carried = { ...isoUser };
+    return out;
+  });
+  check('no SN, BN=2, clean link: no losses', robust.noSnLost === 0, robust.noSnLost);
+  check('BN clamped to 15, fast', robust.bnClamp === 15 && robust.bnMs < 3000, robust);
+  check('outlier Event Counter: no error, fast', robust.outlierIssues > 0 && robust.outlierMs < 3000, robust);
+  check('unit-less timestamps in seconds detected, timing flags = injected', robust.autoUnit === 's' && robust.secTiming, robust);
+  check('only timestamp unit / tolerance carried to the next file', JSON.stringify(robust.carried) === '{"tolUs":30}', robust.carried);
 
   check('no page errors', errors.length === 0, errors);
   await browser.close();

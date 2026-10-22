@@ -489,7 +489,10 @@ let issues=[], issueChecks={}, issueSel=null, pktInfo=new Map();
 //  checks. Each value comes from the Issues-tab panel, else a CSV column (most common
 //  value per stream+direction), else a default (BN/FT) or an estimate from timestamps.
 // ============================================================
-let isoUser={};  // bnC, ftC, bnP, ftP, isoMs, subMs, tsUnit, tolUs — null/absent = not set
+let isoUser={};  // bnC, ftC, bnP, ftP, nse, isoMs, subMs, tsUnit, tolUs — null/absent = not set
+// BN/FT/NSE/intervals belong to one capture, so only the timestamp unit and tolerance are saved with the mapping
+const ISO_SAVED=['tsUnit','tolUs'];
+let tsAutoScale=1, tsAutoUnit=null; // set by analyzeTiming when unit-less timestamps aren't ms
 const ISO_DEFAULTS={bnC:1,ftC:1,bnP:1,ftP:1,tsUnit:'auto',tolUs:20};
 let sduModel=new Map(), linkInfo=new Map(), timingInfo=new Map();
 const isoVal=k=>isoUser[k]!==undefined&&isoUser[k]!==null?isoUser[k]:ISO_DEFAULTS[k];
@@ -508,7 +511,9 @@ function linkParams(sid,isC){
     return[ISO_DEFAULTS[k],'기본값'];
   };
   const[bn,sb]=pick(isC?'bnC':'bnP',f.bn),[ft,sf]=pick(isC?'ftC':'ftP',f.ft);
-  return{bn:Math.max(1,Math.round(bn)),ft:Math.max(1,Math.round(ft)),src:sb===sf?sb:`BN ${sb} · FT ${sf}`};
+  // Core spec ranges: BN 1–15 (0 = no data in that direction), FT 1–255
+  const clamp=(v,lo,hi)=>Math.min(hi,Math.max(lo,Math.round(v)));
+  return{bn:clamp(bn,1,15),ft:clamp(ft,1,255),src:sb===sf?sb:`BN ${sb} · FT ${sf}`};
 }
 // Timestamp → µs. Digit groups may be separated by spaces ("1.234 567"); hh:mm:ss.f is accepted.
 // A unit suffix (s/ms/us/µs/ns) is used unless the panel sets one; without either, ms is assumed.
@@ -521,8 +526,8 @@ function tsUs(v){
   if(hms)return(+hms[1]*3600+ +hms[2]*60+parseFloat(hms[3]))*1e6;
   const m=s.match(/-?\d+(?:\.\d+)?(?:e[-+]?\d+)?/i);if(!m)return NaN;
   const suf=(s.slice(m.index+m[0].length).match(/^\s*(ns|µs|us|ms|s)\b/i)||[])[1];
-  const unit=forced||(suf?suf.toLowerCase().replace('µ','u'):'ms');
-  return parseFloat(m[0])*TS_SCALE[unit];
+  if(forced||suf)return parseFloat(m[0])*TS_SCALE[forced||suf.toLowerCase().replace('µ','u')];
+  return parseFloat(m[0])*TS_SCALE.ms*tsAutoScale;
 }
 
 function analyzeIssues(){
@@ -579,7 +584,7 @@ function analyzeIssues(){
     byDir.forEach((b,d)=>firsts.push({key:getStreamId(b.first.r)+'|'+d,...b}));
   });
 
-  buildPayloadModel(isCis,hasAck,num,add);
+  buildPayloadModel(isCis,hasAck,num,add,seBase);
   analyzeTiming(isCis,seBase,num,add);
 
   // Payload: a direction whose events mostly start with a null PDU carries no audio (e.g. unidirectional) → not flagged
@@ -605,100 +610,141 @@ function packetsByStream(num){
 
 // ============================================================
 //  PAYLOAD MODEL (FT / BN)
-//  A sender repeats one payload (same SN) until it is acked or reaches its flush point,
-//  FT events after it was generated; both ends then advance SN/NESN. So per stream+
-//  direction, data packets form one payload while the SN stays the same and the first
-//  transmission is less than FT events back. With FT=1 this is "per event", as before.
-//  Ack of a transmission: C→P by the P→C reply in the same subevent; P→C by the next
-//  C→P (same event, or a later one while the payload can still be retried). A later
-//  C→P past the flush point says nothing, since NESN also advances at the flush.
-//  Outcome: 'first' / 'retx' (same event) / 'carry' (later event, FT>1) / 'lost', or
-//  'open' when the capture ends before the flush point. Without any ack information a
-//  CRC-OK copy that the other side answered counts as delivered (inferred).
-//  Delivery entries: BN payloads are expected per event; an event where the direction
-//  sent nothing is short BN payloads unless the next FT-1 events carry the extra ones.
+//  Each CIS event generates BN payloads per direction. Payload i (1..BN) generated in event
+//  x may be sent until its flush point: the end of subevent NSE − floor(NSE/BN)·(BN−i) of
+//  event x+FT−1. A sender repeats a payload (same SN) until it is acked or flushed; at the
+//  flush point both ends advance SN/NESN.
+//  1. Grouping: per stream+direction, data packets with the same SN, within FT events of
+//     the first copy, are one payload (a new SN or FT events later starts the next).
+//  2. Slots: payloads are sent in order, so each group takes the oldest generated payload
+//     (gen event, index i) whose flush point it hasn't passed; skipped slots were never sent
+//     (lost). Events missing from the capture still generate BN payloads; events with only
+//     null PDUs generate none.
+//  3. Ack: a packet of the other side whose NESN moved past this SN, seen after a copy and
+//     before the flush point and before this direction sends its next packet (the sender
+//     only moves on after an ack or the flush). Null PDUs count too. From a later event only
+//     a CRC-OK packet counts, and not for a copy the sniffer saw corrupted.
+//  4. Without ack information for the last copy (no SN/NESN, or nothing from the other side
+//     after it before the flush point) a CRC-OK copy that was answered counts as delivered
+//     (inferred). Outcome: 'first' / 'retx' (same event) / 'carry' (delivered in a later event
+//     than generated, FT>1) / 'lost', or 'open' when the capture ends before the flush point.
+//  Without an SN column payloads can't be linked across events: BN and FT are taken as 1.
 // ============================================================
-function buildPayloadModel(isCis,hasAck,num,add){
-  const f=detectedFields,dc=getDirCol(),ecCol=f.eventCounter;
+function flushSubevent(nse,bn,i){ // i = 1..BN; Infinity = end of event; null = unknown
+  if(bn===1)return Infinity;
+  return isNaN(nse)?null:nse-Math.floor(nse/bn)*(bn-i);
+}
+function buildPayloadModel(isCis,hasAck,num,add,seBase){
+  const f=detectedFields,dc=getDirCol(),ecCol=f.eventCounter,seCol=f.subevent,hasSn=f.sn!==undefined;
   const dirs=dc!==undefined?[...new Set(rawData.map(r=>r[dc]))].sort((a,b)=>isCtoPDir(b)-isCtoPDir(a)):[''];
   packetsByStream(num).forEach((list,sid)=>{
-    let lo=Infinity,hi=-Infinity;list.forEach(oi=>{const e=num(rawData[oi],ecCol);if(e<lo)lo=e;if(e>hi)hi=e;});
+    const evAll=[...new Set(list.map(oi=>num(rawData[oi],ecCol)))].sort((a,b)=>a-b),hi=evAll[evAll.length-1];
+    // NSE: panel value, else the highest subevent seen in this stream
+    let seTop=-Infinity;if(seCol!==undefined)list.forEach(oi=>{const v=num(rawData[oi],seCol);if(v>seTop)seTop=v;});
+    const nse=isoUser.nse!=null?isoUser.nse:isFinite(seTop)?seTop-seBase+1:NaN;
+    const rel=oi=>seCol===undefined?NaN:num(rawData[oi],seCol)-seBase+1; // 1-based subevent
     dirs.forEach(d=>{
-      const isC=d?isCtoPDir(d):true,{bn,ft,src}=linkParams(sid,isC),key=sid+'|'+d;
-      const insts=[],evSeen=new Map(); // ec → true if this direction sent data, false if only null PDUs
-      let cur=null;
+      const isC=d?isCtoPDir(d):true,key=sid+'|'+d;
+      let{bn,ft,src}=linkParams(sid,isC);
+      if(!hasSn&&(bn>1||ft>1)){bn=1;ft=1;src+=' → SN 컬럼 없음: 1/1로 판정';}
+      const fsOf=i=>flushSubevent(nse,bn,i);
+      // 1+2. Grouping and slots, event by event in capture order
+      const evSeen=new Map(),own=new Map(),nextOwn=new Array(list.length).fill(list.length);
+      let lastOwn=-1;
       list.forEach((oi,i)=>{
         const r=rawData[oi];if(dc!==undefined&&r[dc]!==d)return;
+        for(let j=lastOwn+1;j<=i;j++)nextOwn[j]=i;lastOwn=i; // nextOwn[j] = first packet of this direction at or after j
         const p=pktInfo.get(oi),ec=num(r,ecCol);
         evSeen.set(ec,!!evSeen.get(ec)||!p.nul);
-        if(p.nul)return;
-        const sn=num(r,f.sn);
-        const fresh=!cur||(isNaN(sn)||isNaN(cur.sn)?ec!==cur.e0:sn!==cur.sn||ec-cur.e0>=ft);
-        if(fresh){cur={e0:ec,sn,tx:[]};insts.push(cur);}
-        cur.tx.push({oi,i,ec,err:p.err,noresp:p.resp===false});
-        p.retx=cur.tx.length-1;p.carry=ec>cur.e0;p.inst=cur;
+        if(!p.nul){if(!own.has(ec))own.set(ec,[]);own.get(ec).push(i);}
       });
-      insts.forEach((s,n)=>{
-        // Ack: any packet of the other side, from the first transmission until this direction starts its next
-        // payload (or the flush point), whose NESN moved past this SN. Null PDUs count too: they still carry NESN.
-        // From a later event only a CRC-OK packet counts, and not for a copy the sniffer saw corrupted, since
-        // the flush also advances NESN.
+      const insts=[],entries=[],queue=[];
+      // Every payload advances SN once (ack or flush), so SN parity follows the payload order. It lines groups up
+      // with slots again after payloads the capture didn't see (gaps, dropped subevents).
+      let nextIdx=0,par=null,spare=[];
+      const miss=(ec,n)=>{if(n>0)entries.push({ec,st:'lost',miss:true,n});};
+      const expire=ec=>{while(queue.length&&queue[0].gen+ft-1<ec){const g=queue[0].gen;let n=0;while(queue.length&&queue[0].gen===g){queue.shift();n++;}miss(g,n);}};
+      // Still inside slot h's window at (ec, se)? Unknown subevent counts as inside.
+      const within=(h,ec,se)=>{const fe=h.gen+ft-1,fs=fsOf(h.i);return ec<fe||(ec===fe&&(fs===Infinity||fs===null||isNaN(se)||se<=fs));};
+      const audio=own.size>0;
+      let cur=null;
+      if(audio)evAll.forEach((ec,ix)=>{
+        const prev=ix?evAll[ix-1]:ec;
+        if(ec-prev>1){
+          // Events missing from the capture: BN payloads each, counted lost. The sender most likely sent them
+          // there, so they don't wait in the queue; one is taken back only if a group has no other slot.
+          const n=(ec-prev-1)*bn,ent={ec:prev+1,st:'lost',miss:true,n};entries.push(ent);
+          spare=[];for(let m=prev+1;m<ec;m++)for(let i=1;i<=bn;i++){const idx=nextIdx++;if(m>ec-ft)spare.push({gen:m,i,idx,ent});}
+        }
+        expire(ec);
+        const seen=evSeen.get(ec);
+        if(seen!==false)for(let i=1;i<=bn;i++)queue.push({gen:ec,i,idx:nextIdx++});
+        (own.get(ec)||[]).forEach(i=>{
+          const oi=list[i],r=rawData[oi],p=pktInfo.get(oi),sn=num(r,f.sn),se=rel(oi);
+          const same=cur&&(isNaN(sn)||isNaN(cur.sn)?ec===cur.e0:sn===cur.sn)&&within(cur,ec,se);
+          if(!same){
+            // The oldest payload whose flush point this packet hasn't passed; older ones were never sent
+            const parityOk=h=>par===null||isNaN(sn)||((h.idx+par)&1)===sn;
+            while(queue.length&&(!within(queue[0],ec,se)||(!parityOk(queue[0])&&queue.length>1&&within(queue[1],ec,se)))){miss(queue[0].gen,1);queue.shift();}
+            let h=queue.shift();
+            if(!h){spare=spare.filter(x=>within(x,ec,se));const k=spare.findIndex(parityOk);if(k>=0){h=spare.splice(k,1)[0];h.ent.n--;}}
+            if(!h)h={gen:ec,i:bn,extra:true};
+            if(par===null&&!isNaN(sn)&&!h.extra)par=(sn-h.idx)&1;
+            cur={e0:ec,sn,tx:[],gen:h.gen,i:h.i,extra:!!h.extra};insts.push(cur);
+            entries.push({ec:cur.gen,oi,inst:cur});
+          }
+          cur.tx.push({oi,i,ec,se,err:p.err,noresp:p.resp===false});
+          p.retx=cur.tx.length-1;p.inst=cur;
+        });
+        if(seen===false)entries.push({ec,st:null});
+      });
+      if(audio){const left=new Map();queue.forEach(h=>{if(h.gen+ft-1<=hi)left.set(h.gen,(left.get(h.gen)||0)+1);});left.forEach((n,g)=>miss(g,n));}
+      // 3./4. Ack and outcome
+      const acks=isCis&&hasAck;
+      insts.forEach(s=>{
+        const fe=s.gen+ft-1,fs=fsOf(s.i),last=s.tx[s.tx.length-1];
+        const before=(qe,qse)=>qe<fe||(qe===fe&&(fs===Infinity||(fs!==null&&!isNaN(qse)&&qse<=fs)));
         let ok=null,answeredLast=false;
-        const last=s.tx[s.tx.length-1],acks=isCis&&hasAck&&!isNaN(s.sn);
-        if(acks){
-          const endI=n+1<insts.length?insts[n+1].tx[0].i:list.length;
+        if(acks&&!isNaN(s.sn)){
+          const endI=nextOwn[last.i+1]??list.length;
           for(let j=s.tx[0].i+1;j<endI&&!ok;j++){
             const qi=list[j],q=pktInfo.get(qi);if(q.c===isC)continue;
-            const qr=rawData[qi],qe=num(qr,ecCol);if(qe>s.e0+ft-1)break;
+            const qr=rawData[qi],qe=num(qr,ecCol);if(qe>fe)break;
             const qn=num(qr,f.nesn);if(isNaN(qn))continue;
-            if(j>last.i)answeredLast=true;
-            if(qn===s.sn)continue;
             let t=null;s.tx.forEach(x=>{if(x.i<j)t=x;});
+            // C→P: the reply in the same subevent is always before the flush point
+            const sameSe=isC&&j===t.i+1;
+            if(!sameSe&&!before(qe,rel(qi)))continue;
             if(qe!==t.ec&&(errorRows.has(qi)||t.err))continue;
-            ok=t;
+            if(j>last.i)answeredLast=true;
+            if(qn!==s.sn)ok=t;
           }
+        }
+        // The sender moves on (null PDU or its next payload) before the flush point only after an ack
+        if(!ok){
+          const j=nextOwn[last.i+1];
+          if(j!==undefined&&j<list.length){const qi=list[j];if(within(s,num(rawData[qi],ecCol),rel(qi))&&(s.tx.length>1||!last.noresp||isNaN(s.sn)||!acks))ok=last;}
         }
         if(ok)s.inferred=false;
         else{
-          // No ack information for the last copy (no SN/NESN, or a P→C with no C→P after it before the
-          // flush point): a CRC-OK copy that wasn't left unanswered counts as delivered (inferred)
-          const cand=acks?(answeredLast?[]:[last]):s.tx;
+          const cand=acks&&!isNaN(s.sn)?(answeredLast?[]:[last]):s.tx;
           ok=cand.find(t=>!t.noresp&&!t.err)||null;
-          // Without SN/NESN: the sender switching to a null PDU before the flush point means it saw the ack
-          if(!ok&&!acks&&bn===1){
-            const endI=n+1<insts.length?insts[n+1].tx[0].i:list.length;
-            for(let j=last.i+1;j<endI&&!ok;j++){const q=pktInfo.get(list[j]);if(q.c!==isC||!q.nul)continue;if(num(rawData[list[j]],ecCol)>s.e0+ft-1)break;ok=last;}
-          }
           if(ok)s.inferred=true;
         }
-        if(ok){s.okEc=ok.ec;s.st=ok===s.tx[0]?'first':ok.ec>s.e0?'carry':'retx';}
-        else s.st=hi>=s.e0+ft-1?'lost':'open';
+        // 'carry' = delivered in a later event than its first copy: what the capture shows directly
+        if(ok){s.okEc=ok.ec;s.st=ok.ec>s.e0?'carry':ok===s.tx[0]?'first':'retx';}
+        else s.st=hi>=fe?'lost':'open';
+        s.tx.forEach(t=>{const p=pktInfo.get(t.oi);p.carry=t.ec>s.e0;});
         s.tx.forEach(t=>{
           if(!t.err||s.st==='open')return;
-          if(s.st==='lost')add('crcLost',t.oi,undefined,`Flush 시점(Event ${s.e0+ft-1})까지 전달 확인 안 됨`+(ft>1?` · FT=${ft}`:''));
+          if(s.st==='lost')add('crcLost',t.oi,undefined,`Flush 시점(Event ${fe})까지 전달 확인 안 됨`+(ft>1?` · FT=${ft}`:''));
           else add('crcRecovered',t.oi,undefined,s.okEc>t.ec?`다음 이벤트(Event ${s.okEc})에서 전달 확인 · FT=${ft}`:'같은 이벤트 안에서 전달 확인');
         });
       });
-      // Delivery entries per event
-      const byE=new Map();insts.forEach(s=>{if(!byE.has(s.e0))byE.set(s.e0,[]);byE.get(s.e0).push(s);});
-      // A payload is first sent within FT-1 events of its generation or never (flushed), so by event ec at
-      // least BN per audio event up to ec-(FT-1) must have started; any shortfall is payloads never sent.
-      // Events with only null PDUs carry no audio and expect none.
-      const entries=[];
-      if(insts.length){
-        const expCum=new Map();let E=0,A=0,M=0;
-        for(let ec=lo;ec<=hi;ec++){
-          const fresh=byE.get(ec)||[],seen=evSeen.get(ec);
-          E+=seen===false?0:bn;expCum.set(ec,E);A+=fresh.length;
-          fresh.forEach(s=>entries.push({ec,st:s.st==='open'?undefined:s.st,oi:s.tx[0].oi,inst:s}));
-          if(seen===false&&!fresh.length)entries.push({ec,st:null});
-          const due=ec-(ft-1),need=due>=lo?expCum.get(due):0;
-          if(A+M<need){for(let k=A+M;k<need;k++)entries.push({ec:due,st:'lost',miss:true});M=need-A;}
-        }
-        entries.sort((x,y)=>x.ec-y.ec);
-      }
+      entries.forEach(e=>{if(e.inst)e.st=e.inst.st==='open'?undefined:e.inst.st;if(e.miss&&!e.n)e.st=undefined;});
+      entries.sort((x,y)=>x.ec-y.ec);
       sduModel.set(key,{sid,dir:d,list:entries.filter(e=>e.st!==undefined)});
-      linkInfo.set(key,{bn,ft,src});
+      linkInfo.set(key,{bn,ft,src,nse});
     });
   });
 }
@@ -714,8 +760,21 @@ function buildPayloadModel(isCis,hasAck,num,add){
 // ============================================================
 function analyzeTiming(isCis,seBase,num,add){
   const f=detectedFields,dc=getDirCol(),ecCol=f.eventCounter,seCol=f.subevent;
+  tsAutoScale=1;tsAutoUnit=null;
   if(!issueChecks.anchorTiming.on&&!issueChecks.slotTiming.on)return;
   const tol=+isoVal('tolUs')||20,slotOn=issueChecks.slotTiming.on;
+  // Unit-less timestamps are read as ms. If that puts the ISO interval outside 5 ms – 4 s, use the unit that doesn't.
+  if(isoVal('tsUnit')==='auto'){
+    const vals=rawData.slice(0,200).map(r=>String(r[f.timestamp]??'').trim()).filter(Boolean);
+    if(vals.length&&vals.every(v=>!/(ns|µs|us|ms|s)\s*$/i.test(v)&&!/^\d+:\d/.test(v))){
+      const first=new Map();
+      rawData.forEach(r=>{if(dc!==undefined&&!isCtoPDir(r[dc]))return;const k=getStreamId(r)+'|'+num(r,ecCol),t=tsUs(r[f.timestamp]);if(!isNaN(t)&&!(first.get(k)<=t))first.set(k,t);});
+      const bySid=new Map();first.forEach((t,k)=>{const i=k.lastIndexOf('|'),sid=k.slice(0,i),ec=+k.slice(i+1);if(!bySid.has(sid))bySid.set(sid,[]);bySid.get(sid).push([ec,t]);});
+      const steps=[];bySid.forEach(L=>{L.sort((a,b)=>a[0]-b[0]);for(let i=1;i<L.length;i++){const de=L[i][0]-L[i-1][0];if(de>=1&&de<=4)steps.push((L[i][1]-L[i-1][1])/de);}});
+      const est=median(steps);
+      if(!isNaN(est)&&(est<5000||est>4e6))for(const[u,k]of[['s',1000],['µs',0.001],['ns',1e-6]])if(est*k>=5000&&est*k<=4e6){tsAutoScale=k;tsAutoUnit=u;break;}
+    }
+  }
   const us=v=>(v>=0?'+':'')+Math.round(v)+' µs',ms=v=>(v/1000).toFixed(3)+' ms';
   packetsByStream(num).forEach((list,sid)=>{
     const ev=new Map();
@@ -741,13 +800,13 @@ function analyzeTiming(isCis,seBase,num,add){
     if(issueChecks.anchorTiming.on&&!isNaN(iso))for(let i=1;i<anchors.length;i++){
       const A=anchors[i],B=anchors[i-1],de=A.ec-B.ec;if(de<1||de>8)continue;
       A.dev=(A.t-B.t)-de*iso;
-      if(Math.abs(A.dev)>tol){A.flag=true;add('anchorTiming',A.oi,undefined,`앵커 간격 ${ms(A.t-B.t)}${de>1?` (${de}이벤트)`:''} · 예상 ${ms(de*iso)} → ${us(A.dev)}`);}
+      if(Math.abs(A.dev)>tol){A.flag=true;A.detail=`앵커 간격 ${ms(A.t-B.t)}${de>1?` (${de}이벤트)`:''} · 예상 ${ms(de*iso)} → ${us(A.dev)}`;add('anchorTiming',A.oi,undefined,A.detail);}
     }
     if(slotOn&&!isNaN(sub))anchors.forEach(A=>{
       ev.get(A.ec).forEach(x=>{
         if(!x.c||isNaN(x.se)||x.oi===A.oi)return;
         const dev=x.t-(A.t+(x.se-seBase)*sub);
-        if(Math.abs(dev)>tol){flagged.push({ec:A.ec,dev,oi:x.oi});add('slotTiming',x.oi,undefined,`SE${x.se} C→P 송신 시각이 예상보다 ${us(dev)} (Sub_Interval ${ms(sub)})`);}
+        if(Math.abs(dev)>tol){const detail=`SE${x.se} C→P 송신 시각이 예상보다 ${us(dev)} (Sub_Interval ${ms(sub)})`;flagged.push({ec:A.ec,dev,oi:x.oi,detail});add('slotTiming',x.oi,undefined,detail);}
       });
     });
     // Reply gap: P→C right after its C→P in the same event and subevent, grouped by the C→P length
@@ -756,7 +815,7 @@ function analyzeTiming(isCis,seBase,num,add){
       ev.forEach(L=>{for(let i=1;i<L.length;i++){const p=L[i],c=L[i-1];if(p.c||!c.c||p.se!==c.se&&!(isNaN(p.se)&&isNaN(c.se)))continue;const k=c.nul?'null':String(c.len);if(!gaps.has(k))gaps.set(k,[]);gaps.get(k).push({g:p.t-c.t,oi:p.oi,ec:num(rawData[p.oi],ecCol)});}});
       gaps.forEach(G=>{
         if(G.length<5)return;const med=median(G.map(x=>x.g));
-        G.forEach(x=>{const dev=x.g-med;if(Math.abs(dev)>tol){flagged.push({ec:x.ec,dev,oi:x.oi});add('slotTiming',x.oi,undefined,`응답 간격 ${ms(x.g)} · 평소 ${ms(med)} → ${us(dev)}`);}});
+        G.forEach(x=>{const dev=x.g-med;if(Math.abs(dev)>tol){const detail=`응답 간격 ${ms(x.g)} · 평소 ${ms(med)} → ${us(dev)}`;flagged.push({ec:x.ec,dev,oi:x.oi,detail});add('slotTiming',x.oi,undefined,detail);}});
       });
     }
     timingInfo.set(sid,{iso,isoEst,sub,subEst,tol,anchors,flagged});
@@ -825,7 +884,7 @@ function renderIssues(){
     if(di===0)h+=`<td rowspan="${dirs.length}" style="color:${getColor(sid,null).fg};font-weight:600;">${escHtml(sid===null?'All':streamLabel(sid))}</td>`;
     h+=`<td style="color:${getColor(sid,d||null).fg};">${escHtml(d?dirShort(d):'—')}</td>`;
     const g=deliv.get(sid+'|'+d),n={first:0,retx:0,carry:0,lost:0,miss:0,inf:0};let run=0,mx=0;
-    if(g)g.list.forEach(e=>{if(e.st){n[e.st]++;if(e.miss)n.miss++;if(e.inst&&e.inst.inferred&&e.st!=='lost')n.inf++;}if(e.st==='lost'){run++;mx=Math.max(mx,run);}else run=0;});
+    if(g)g.list.forEach(e=>{const w=e.n||1;if(e.st){n[e.st]+=w;if(e.miss)n.miss+=w;if(e.inst&&e.inst.inferred&&e.st!=='lost')n.inf++;}if(e.st==='lost'){run+=w;mx=Math.max(mx,run);}else run=0;});
     const ok=n.first+n.retx+n.carry,tot=ok+n.lost;
     h+=`<td class="sum bnft" title="${g?escHtml('출처: '+g.src):''}">${g?g.bn+' / '+g.ft:'—'}</td>`;
     h+=tot?`<td class="sum${n.lost?' bad':''}" title="첫 전송 성공 ${n.first} · 같은 이벤트 재전송 후 성공 ${n.retx} · 다음 이벤트에서 성공 ${n.carry} · 손실 ${n.lost}${n.miss?` (그중 한 번도 송신 안 됨 ${n.miss})`:''} / ${tot} payloads${n.inf?` · ACK 정보 없이 CRC로 추정한 전달 ${n.inf}`:''}">${(ok/tot*100).toFixed(2)}%</td>${anyCarry?`<td class="sum${n.carry?' carry':''}">${n.carry||'·'}</td>`:''}<td class="sum${mx?' bad':''}">${mx}</td>`
@@ -877,7 +936,7 @@ function renderIssues(){
 
 // ISO parameter panel (top of the Issues tab)
 let isoOpen=false;
-const ISO_INPUTS=[['isoBnC','bnC','int'],['isoFtC','ftC','int'],['isoBnP','bnP','int'],['isoFtP','ftP','int'],['isoIso','isoMs','num'],['isoSub','subMs','num'],['isoTol','tolUs','num']];
+const ISO_INPUTS=[['isoBnC','bnC','int',15],['isoFtC','ftC','int',255],['isoBnP','bnP','int',15],['isoFtP','ftP','int',255],['isoNse','nse','int',31],['isoIso','isoMs','num',4000],['isoSub','subMs','num',4000],['isoTol','tolUs','num',1e6]];
 function isoPanelHtml(){
   const v=k=>isoUser[k]!==undefined&&isoUser[k]!==null?isoUser[k]:'';
   const sids=getStreamCol()!==null?streamIds:[null],dc=getDirCol();
@@ -894,6 +953,8 @@ function isoPanelHtml(){
   h+=`<div class="iso-grid">`;
   [['C→P','C'],['P→C','P']].forEach(([lb,x])=>{h+=`<div class="grp"><span class="grp-t">${lb}</span><label>BN<input id="isoBn${x}" type="number" min="1" max="15" step="1" value="${v('bn'+x)}" placeholder="${fmt(est[0]&&est[0][x.toLowerCase()]).split('/')[0]}"></label><label>FT<input id="isoFt${x}" type="number" min="1" max="255" step="1" value="${v('ft'+x)}" placeholder="${fmt(est[0]&&est[0][x.toLowerCase()]).split('/')[1]||''}"></label></div>`;});
   const pe=k=>{const x=est.map(e=>e.t&&e.t[k]).find(y=>y!==undefined&&!isNaN(y));return x===undefined?'추정 불가':(x/1000).toFixed(3);};
+  const nseNow=[...linkInfo.values()].map(x=>x.nse).find(x=>!isNaN(x));
+  h+=`<label>NSE<input id="isoNse" type="number" min="1" max="31" step="1" value="${v('nse')}" placeholder="${nseNow!==undefined?nseNow:'—'}"></label>`;
   h+=`<label>ISO_Interval (ms)<input id="isoIso" type="number" min="0" step="0.001" value="${v('isoMs')}" placeholder="${pe('isoEst')}"></label>`;
   h+=`<label>Sub_Interval (ms)<input id="isoSub" type="number" min="0" step="0.001" value="${v('subMs')}" placeholder="${pe('subEst')}"></label>`;
   h+=`<label>Timestamp 단위<select id="isoTs">${[['auto','자동 (없으면 ms)'],['s','s'],['ms','ms'],['us','µs'],['ns','ns']].map(([k,l])=>`<option value="${k}"${isoVal('tsUnit')===k?' selected':''}>${l}</option>`).join('')}</select></label>`;
@@ -902,7 +963,7 @@ function isoPanelHtml(){
   h+=`<table class="iso-est"><thead><tr><th>Stream</th><th>C→P BN/FT</th><th>P→C BN/FT</th><th>ISO 간격 추정</th><th>Sub 간격 추정</th></tr></thead><tbody>`;
   est.forEach(e=>{h+=`<tr><td style="color:${getColor(e.sid,null).fg};">${escHtml(e.sid===null?'All':streamLabel(e.sid))}</td><td title="${escHtml(e.c?e.c.src:'')}">${fmt(e.c)} <span class="cell-muted">${escHtml(e.c?e.c.src:'')}</span></td><td title="${escHtml(e.p?e.p.src:'')}">${fmt(e.p)} <span class="cell-muted">${escHtml(e.p?e.p.src:'')}</span></td><td>${e.t?ms(e.t.isoEst):'—'}</td><td>${e.t?ms(e.t.subEst):'—'}</td></tr>`;});
   h+=`</tbody></table>`;
-  h+=`<div class="iso-note">BN/FT를 비우면 CSV의 BN·FT 컬럼 값을, 없으면 1을 씁니다 (FT=1이면 이전과 같은 이벤트 단위 판정). FT는 LL_CIS_REQ나 LE CIS Established 이벤트에서 확인할 수 있습니다. ISO/Sub 간격을 비우면 타임스탬프에서 추정합니다.${odd?' <b>추정 ISO 간격이 5 ms~4 s 범위를 벗어났습니다. Timestamp 단위를 확인하세요.</b>':''}</div>`;
+  h+=`<div class="iso-note">BN/FT를 비우면 CSV의 BN·FT 컬럼 값을, 없으면 1을 씁니다 (FT=1이면 이전과 같은 이벤트 단위 판정). FT는 LL_CIS_REQ나 LE CIS Established 이벤트에서 확인할 수 있습니다. NSE는 BN>1일 때 payload별 Flush 시점을 정하는 데 쓰며, 비우면 캡처에서 본 가장 큰 Subevent 번호를 씁니다. ISO/Sub 간격을 비우면 타임스탬프에서 추정합니다. BN/FT/NSE/간격은 캡처마다 다르므로 저장하지 않고, Timestamp 단위와 허용 오차만 저장합니다.${tsAutoUnit?` 단위 없는 Timestamp를 <b style="color:#3fb950">${tsAutoUnit}</b> 단위로 판단했습니다.`:''}${odd?' <b>추정 ISO 간격이 5 ms~4 s 범위를 벗어났습니다. Timestamp 단위를 확인하세요.</b>':''}</div>`;
   h+=`</div></details>`;
   return h;
 }
@@ -911,11 +972,11 @@ function bindIsoPanel(){
   box.addEventListener('toggle',()=>{isoOpen=box.open;});
   document.getElementById('isoApply').onclick=()=>{
     const next={};let bad=false;
-    ISO_INPUTS.forEach(([id,k,kind])=>{
-      const el=document.getElementById(id),raw=el.value.trim();el.style.borderColor='';
+    ISO_INPUTS.forEach(([id,k,kind,max])=>{
+      const el=document.getElementById(id),raw=el.value.trim();el.style.borderColor='';el.title='';
       if(raw==='')return;
       const n=+raw;
-      if(!isFinite(n)||n<=0||(kind==='int'&&(!Number.isInteger(n)||n<1))){el.style.borderColor='#f85149';bad=true;return;}
+      if(!isFinite(n)||n<=0||n>max||(kind==='int'&&(!Number.isInteger(n)||n<1))){el.style.borderColor='#f85149';el.title=`${kind==='int'?'정수 ':''}1~${max}`;bad=true;return;}
       next[k]=n;
     });
     const ts=document.getElementById('isoTs').value;if(ts!=='auto')next.tsUnit=ts;
@@ -1538,8 +1599,7 @@ function drawTimelineTiming(){
     marks.filter(m=>m.sid===sid).forEach(m=>{
       const x=xOf(m.ec),y=yOf(m.dev);if(x<labelW-5||x>cW+5)return;
       ctx.fillStyle=col;ctx.strokeStyle='#f85149';ctx.lineWidth=1.5;ctx.beginPath();ctx.moveTo(x,y-6);ctx.lineTo(x+5,y+4);ctx.lineTo(x-5,y+4);ctx.closePath();ctx.fill();ctx.stroke();
-      const it=issues.find(i=>i.oi===m.oi&&i.type==='slotTiming');
-      tlHitBoxes.push({x,y,r:6,tooltip:`<div class="tt-title" style="color:${col}">${escHtml(streamLabel(sid))} — Event ${m.ec}</div><div class="tt-error">${escHtml(it?it.detail:'')}</div>`});
+      tlHitBoxes.push({x,y,r:6,tooltip:`<div class="tt-title" style="color:${col}">${escHtml(streamLabel(sid))} — Event ${m.ec}</div><div class="tt-error">${escHtml(m.detail||'')}</div>`});
     });
   });
   ctx.restore();
@@ -2071,7 +2131,7 @@ function generateSampleData(){
 // Sample 2 (FT / BN / timing): 1 CIG, 2 CIS, ISO interval 10 ms, NSE 4, Sub_Interval 1.1 ms, LE 2M.
 // C→P BN=2 FT=2 (two 5 ms frames per event, 60 B), P→C BN=1 FT=2 (40 B).
 // Both link layers are simulated: a payload is retried until acked or until its flush point
-// (end of event gen+FT-1; with BN>1 payload k flushes after subevent NSE/BN·(k+1) of that event),
+// (event gen+FT-1, after subevent NSE − floor(NSE/BN)·(BN−i) for payload i = 1..BN),
 // SN/NESN advance on ack or flush at both ends, a corrupted C→P is still answered (with NESN
 // unchanged), and the Central ends the event once its payloads are acked and every pending
 // Peripheral payload has been received. Reply = C→P end + T_IFS 150 µs; timestamp jitter ±2 µs.
@@ -2094,7 +2154,7 @@ function generateSampleData2(o){
   const hex=n=>Array.from({length:n},()=>Math.floor(rnd()*256).toString(16).padStart(2,'0').toUpperCase()).join(' ');
   const rows=[],truth={payloads:[],timing:[]};
   const st={};cisIds.forEach(c=>st[c]={C:{tx:0,rx:0},P:{tx:0,rx:0},payC:[],payP:[]});
-  const mk=(cis,dir,ev,k,bn,ft)=>{const p={sid:cis,dir,gen:ev,k,flushEv:ev+ft-1,flushSe:bn>1?Math.floor(opt.nse/bn)*(k+1):opt.nse,delivered:false,okEv:null,txs:0,firstRow:null};truth.payloads.push(p);return p;};
+  const mk=(cis,dir,ev,k,bn,ft)=>{const p={sid:cis,dir,gen:ev,k,flushEv:ev+ft-1,flushSe:bn>1?opt.nse-Math.floor(opt.nse/bn)*(bn-1-k):opt.nse /* written out separately from flushSubevent() so tests catch a change to either */,delivered:false,okEv:null,txs:0,firstRow:null};truth.payloads.push(p);return p;};
   const passed=(p,ev,se)=>ev>p.flushEv||(ev===p.flushEv&&se>p.flushSe);
   const push=(t,dir,cis,ev,se,s,ne,npi,ch,rssi,fail,len,payload)=>{if(dropped(cis,ev,se))return -1;rows.push([String(rows.length+1),(t+(rnd()-0.5)*0.004).toFixed(3)+' ms',dir,'0x00',cis,String(ev),String(se),String(s),String(ne),String(npi),'LE 2M',String(ch),String(rssi),fail?'Fail':'OK',String(len),payload]);return rows.length-1;};
   for(let ev=0;ev<opt.events;ev++){
@@ -2178,7 +2238,7 @@ let mapDraft = null, mapDirVals = [], mapErrVals = {};
 function mappingKey() { return MAP_STORE + headers.slice(0, baseColCount).join('\u0001'); }
 function saveMapping() {
   const fields = Object.fromEntries(MAP_FIELDS.map(([k]) => [k, detectedFields[k] !== undefined ? headers[detectedFields[k]] : null]));
-  try { localStorage.setItem(mappingKey(), JSON.stringify({ fields, dir: dirOverride, err: errOverride, iso: isoUser })); } catch (e) {}
+  try { localStorage.setItem(mappingKey(), JSON.stringify({ fields, dir: dirOverride, err: errOverride, iso: Object.fromEntries(ISO_SAVED.filter(k => isoUser[k] != null).map(k => [k, isoUser[k]])) })); } catch (e) {}
 }
 // Apply a saved mapping for this header set; returns false when there is none
 function loadSavedMapping(keepIso) {
@@ -2190,7 +2250,7 @@ function loadSavedMapping(keepIso) {
     if (i < 0 || i >= baseColCount) delete detectedFields[k]; else detectedFields[k] = i;
   });
   dirOverride = m.dir || {}; errOverride = m.err || {}; dirCache.clear();
-  if (keepIso === undefined) isoUser = m.iso || {};
+  if (keepIso === undefined) isoUser = Object.fromEntries(ISO_SAVED.filter(k => m.iso && m.iso[k] != null).map(k => [k, m.iso[k]]));
   return true;
 }
 function topValues(ci, n) {
