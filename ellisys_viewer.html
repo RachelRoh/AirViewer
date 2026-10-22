@@ -129,6 +129,27 @@
   .issue-matrix th.sum, .issue-matrix td.sum { text-align: right; font-variant-numeric: tabular-nums; }
   .issue-matrix td.sum { color: #3fb950; }
   .issue-matrix td.sum.bad { color: #f85149; font-weight: 600; }
+  .issue-matrix td.sum.bnft { color: #8b949e; font-family: 'Consolas', monospace; }
+  .issue-matrix td.sum.carry { color: #39c5bb; }
+  .iso-box { background: #161b22; border: 1px solid #30363d; border-radius: 8px; }
+  .iso-box > summary { padding: 8px 12px; cursor: pointer; font-size: 12px; color: #c9d1d9; list-style: none; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .iso-box > summary::-webkit-details-marker { display: none; }
+  .iso-box > summary::before { content: '▸'; color: #8b949e; }
+  .iso-box[open] > summary::before { content: '▾'; }
+  .iso-box .iso-sum { color: #8b949e; font-family: 'Consolas', monospace; font-size: 11px; }
+  .iso-body { padding: 4px 12px 12px; display: flex; flex-direction: column; gap: 10px; }
+  .iso-grid { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: flex-end; }
+  .iso-grid label { display: flex; flex-direction: column; gap: 3px; font-size: 11px; color: #8b949e; }
+  .iso-grid input, .iso-grid select { background: #0d1117; border: 1px solid #30363d; color: #c9d1d9; padding: 4px 6px; border-radius: 4px; font-size: 12px; width: 92px; }
+  .iso-grid input:focus, .iso-grid select:focus { outline: none; border-color: #58a6ff; }
+  .iso-grid .grp { display: flex; gap: 6px; padding: 6px 8px; border: 1px solid #21262d; border-radius: 6px; align-items: flex-end; }
+  .iso-grid .grp-t { font-size: 11px; color: #c9d1d9; align-self: center; min-width: 34px; }
+  .iso-grid .grp input { width: 56px; }
+  .iso-est { width: auto; font-size: 11px; }
+  .iso-est td, .iso-est th { padding: 3px 10px; font-family: 'Consolas', monospace; }
+  .iso-est th { position: static; cursor: default; font-family: inherit; }
+  .iso-note { font-size: 11px; color: #6e7681; line-height: 1.5; }
+  .iso-note b { color: #d29922; font-weight: 600; }
   .cause summary { cursor: pointer; color: #8b949e; font-size: 13px; padding: 4px 0; }
   .cause summary:hover { color: #c9d1d9; }
   .cause-body { display: grid; gap: 16px; margin-top: 10px; }
@@ -195,6 +216,7 @@
   <span class="subtitle">CIS / BIS Packet Analyzer</span>
   <div class="header-actions">
     <button class="btn" id="btnSample">Generate Sample Data</button>
+    <button class="btn" id="btnSampleFt" title="FT=2 · BN=2 · 타이밍 이상이 들어간 샘플">Sample: FT/BN · Timing</button>
     <button class="btn" id="btnColumns" style="display:none;" title="CSV 컬럼과 값 해석 확인·수정">Columns</button>
     <button class="btn" id="btnLoad" style="display:none;">Load Another File</button>
     <button class="btn" id="btnExport" style="display:none;">Export Report</button>
@@ -206,7 +228,7 @@
   <p>Drag & drop an Ellisys CSV export, or click to browse</p>
   <input type="file" id="fileInput" accept=".csv,.tsv,.txt" style="display:none;">
   <button class="btn btn-primary" onclick="document.getElementById('fileInput').click()">Browse Files</button>
-  <div style="margin-top: 20px;"><button class="btn" id="btnSample2">Or try with sample LE Audio data</button></div>
+  <div style="margin-top: 20px; display: flex; gap: 8px; justify-content: center;"><button class="btn" id="btnSample2">Or try with sample LE Audio data</button><button class="btn" id="btnSampleFt2">Sample: FT=2 · BN=2 · Timing</button></div>
 </div>
 
 <div class="main" id="mainView">
@@ -447,19 +469,64 @@ function analyzeErrors(data,f) {
 const ISSUE_TYPES = [
   {key:'noResp', label:'No Response', desc:'C→P 송신에 대한 P→C 응답 없음', needs:['direction','eventCounter'], cisOnly:true},
   {key:'nack', label:'NACK', desc:'응답의 NESN이 SN과 같음 → 상대가 수신 실패, 재전송 요청', needs:['direction','eventCounter','sn','nesn'], cisOnly:true},
-  {key:'crcLost', label:'Corrupted · Lost', desc:'CRC/Status 에러 후 이벤트 안에서 전달 확인 안 됨', needs:['crc|status','eventCounter']},
-  {key:'crcRecovered', label:'Corrupted · Recovered', desc:'CRC/Status 에러였지만 상대 ACK 또는 재전송 성공', needs:['crc|status','eventCounter']},
+  {key:'crcLost', label:'Corrupted · Lost', desc:'CRC/Status 에러 후 Flush 시점(FT)까지 전달 확인 안 됨', needs:['crc|status','eventCounter']},
+  {key:'crcRecovered', label:'Corrupted · Recovered', desc:'CRC/Status 에러였지만 Flush 전에 상대 ACK 또는 재전송 성공 (FT>1이면 다음 이벤트 포함)', needs:['crc|status','eventCounter']},
   {key:'payloadEmpty', label:'Empty Payload', desc:'이벤트 첫 송신이 Null PDU (길이 0)', needs:['payloadLen|npi','eventCounter']},
   {key:'payloadLen', label:'Length Mismatch', desc:'스트림 대표 길이와 다른 payload 길이', needs:['payloadLen','eventCounter']},
   {key:'payloadZero', label:'All-zero Payload', desc:'payload 바이트가 전부 0x00', needs:['payload','eventCounter']},
   {key:'ecSkip', label:'EC Skip', desc:'Event Counter 건너뜀 (스트림+방향별)', needs:['eventCounter']},
   {key:'seSkip', label:'Subevent Skip', desc:'이벤트 안에서 Subevent 번호가 빠짐 (양방향 모두 없음)', needs:['eventCounter','subevent']},
+  {key:'anchorTiming', label:'Anchor Timing (beta)', desc:'이벤트 앵커 간격이 ISO_Interval과 허용 오차 이상 다름', needs:['timestamp','eventCounter']},
+  {key:'slotTiming', label:'Slot Timing (beta)', desc:'Subevent 송신 시각 또는 응답 간격이 예상과 허용 오차 이상 다름', needs:['timestamp','eventCounter','subevent']},
 ];
-const FIELD_LABELS={direction:'Direction',eventCounter:'Event Counter',sn:'SN',nesn:'NESN',crc:'CRC',status:'Status',payloadLen:'Payload Length',npi:'NPI',payload:'Payload',subevent:'Subevent'};
+const FIELD_LABELS={direction:'Direction',eventCounter:'Event Counter',sn:'SN',nesn:'NESN',crc:'CRC',status:'Status',payloadLen:'Payload Length',npi:'NPI',payload:'Payload',subevent:'Subevent',timestamp:'Timestamp'};
 let issues=[], issueChecks={}, issueSel=null, pktInfo=new Map();
 
+// ============================================================
+//  ISO PARAMETERS
+//  BN/FT per direction decide how SDUs map to payloads and how long a payload may be
+//  retried; ISO/Sub interval, the timestamp unit and the tolerance drive the timing
+//  checks. Each value comes from the Issues-tab panel, else a CSV column (most common
+//  value per stream+direction), else a default (BN/FT) or an estimate from timestamps.
+// ============================================================
+let isoUser={};  // bnC, ftC, bnP, ftP, isoMs, subMs, tsUnit, tolUs — null/absent = not set
+const ISO_DEFAULTS={bnC:1,ftC:1,bnP:1,ftP:1,tsUnit:'auto',tolUs:20};
+let sduModel=new Map(), linkInfo=new Map(), timingInfo=new Map();
+const isoVal=k=>isoUser[k]!==undefined&&isoUser[k]!==null?isoUser[k]:ISO_DEFAULTS[k];
+function median(a){if(!a.length)return NaN;const s=[...a].sort((x,y)=>x-y),m=s.length>>1;return s.length%2?s[m]:(s[m-1]+s[m])/2;}
+// Most common numeric value of a column within one stream (optionally one direction)
+function colMode(sid,col,keep){
+  const c=new Map();
+  rawData.forEach(r=>{if(getStreamId(r)!==sid||(keep&&!keep(r)))return;const v=parseFloat(r[col]);if(!isNaN(v))c.set(v,(c.get(v)||0)+1);});
+  let best=null,n=0;c.forEach((k,v)=>{if(k>n){n=k;best=v;}});return best;
+}
+function linkParams(sid,isC){
+  const f=detectedFields,dc=getDirCol(),keep=dc!==undefined?(r=>isCtoPDir(r[dc])===isC):null;
+  const pick=(k,col)=>{
+    if(isoUser[k]!==undefined&&isoUser[k]!==null)return[isoUser[k],'입력'];
+    if(col!==undefined){const v=colMode(sid,col,keep);if(v!==null&&v>=1)return[v,'CSV'];}
+    return[ISO_DEFAULTS[k],'기본값'];
+  };
+  const[bn,sb]=pick(isC?'bnC':'bnP',f.bn),[ft,sf]=pick(isC?'ftC':'ftP',f.ft);
+  return{bn:Math.max(1,Math.round(bn)),ft:Math.max(1,Math.round(ft)),src:sb===sf?sb:`BN ${sb} · FT ${sf}`};
+}
+// Timestamp → µs. Digit groups may be separated by spaces ("1.234 567"); hh:mm:ss.f is accepted.
+// A unit suffix (s/ms/us/µs/ns) is used unless the panel sets one; without either, ms is assumed.
+const TS_SCALE={s:1e6,ms:1e3,us:1,ns:1e-3};
+function tsUs(v){
+  let s=String(v??'').trim();if(!s)return NaN;
+  s=s.replace(/(\d)[\s_'](?=\d)/g,'$1');
+  const forced=isoVal('tsUnit')!=='auto'?isoVal('tsUnit'):null;
+  const hms=s.match(/^(\d+):(\d{1,2}):(\d{1,2}(?:\.\d+)?)/);
+  if(hms)return(+hms[1]*3600+ +hms[2]*60+parseFloat(hms[3]))*1e6;
+  const m=s.match(/-?\d+(?:\.\d+)?(?:e[-+]?\d+)?/i);if(!m)return NaN;
+  const suf=(s.slice(m.index+m[0].length).match(/^\s*(ns|µs|us|ms|s)\b/i)||[])[1];
+  const unit=forced||(suf?suf.toLowerCase().replace('µ','u'):'ms');
+  return parseFloat(m[0])*TS_SCALE[unit];
+}
+
 function analyzeIssues(){
-  issues=[]; issueChecks={}; pktInfo=new Map();
+  issues=[]; issueChecks={}; pktInfo=new Map(); sduModel=new Map(); linkInfo=new Map(); timingInfo=new Map();
   const f=detectedFields, dc=getDirCol(), ecCol=f.eventCounter, seCol=f.subevent;
   const dirSet=dc!==undefined?new Set(rawData.map(r=>r[dc])):new Set();
   const isCis=getStreamType()==='CIS'&&dirSet.size>=2;
@@ -492,20 +559,12 @@ function analyzeIssues(){
     // true = acked, false = NACK, null = unknown
     const ack=j=>{const y=reply(j);return y&&hasAck&&!isNaN(y.nesn)&&!isNaN(P[j].sn)?y.nesn!==P[j].sn:null;};
     P.forEach((x,j)=>{
-      // Per-packet facts for the Packet Table derived columns; retx = earlier data packets of this side (same SN) in the event
-      const retx=x.nul?0:P.slice(0,j).filter(z=>z.c===x.c&&!z.nul&&(isNaN(x.sn)||z.sn===x.sn)).length;
-      pktInfo.set(x.oi,{resp:isCis&&x.c?!!reply(j):null,ack:isCis&&!x.nul?ack(j):null,retx,nul:x.nul});
+      // Per-packet facts for the Packet Table derived columns (retx/carry are filled in by the payload model below)
+      pktInfo.set(x.oi,{resp:isCis&&x.c?!!reply(j):null,ack:isCis&&!x.nul?ack(j):null,retx:0,carry:false,nul:x.nul,err:x.err,c:x.c});
       if(isCis&&x.c&&!reply(j)) add('noResp',x.oi,pDir,(seCol!==undefined?`SE${x.r[seCol]}: `:'')+'C→P 송신 후 P→C 응답 없음');
       if(isCis&&!x.nul&&ack(j)===false) add('nack',x.oi,undefined,`${x.c?'P':'C'}가 NESN=${reply(j).nesn}으로 재전송 요청 (스니퍼 CRC: ${x.err?'Fail':'OK'})`);
-      if(x.err){
-        // Delivered if any same-SN packet of this side in the event got acked (or, without SN/NESN, a retransmission was captured CRC OK).
-        // A C→P retransmission with no P→C response doesn't count: the Peripheral evidently didn't receive it.
-        // A corrupted null PDU carries no audio, so nothing is lost.
-        let ok=false;
-        for(let m=0;m<P.length&&!ok;m++){const z=P[m];if(z.c!==x.c||(!isNaN(x.sn)&&z.sn!==x.sn))continue;const a=ack(m);ok=a===true||(a===null&&m>j&&!z.err&&!(isCis&&z.c&&!reply(m)));}
-        if(ok||x.nul) add('crcRecovered',x.oi,undefined,x.nul&&!ok?'Null PDU (오디오 손실 없음)':'같은 이벤트 안에서 전달 확인');
-        else add('crcLost',x.oi,undefined,'이벤트 종료까지 전달 확인 안 됨');
-      }
+      // A corrupted null PDU carries no audio, so nothing is lost; corrupted data is judged per payload below
+      if(x.err&&x.nul) add('crcRecovered',x.oi,undefined,'Null PDU (오디오 손실 없음)');
     });
     if(seCol!==undefined){
       const seen=[...new Set(P.map(x=>num(x.r,seCol)).filter(v=>!isNaN(v)))].sort((a,b)=>a-b);
@@ -519,6 +578,9 @@ function analyzeIssues(){
     P.forEach(x=>{const d=dc!==undefined?x.r[dc]:'';if(!byDir.has(d))byDir.set(d,{first:x,data:null});const b=byDir.get(d);if(!b.data&&!x.nul)b.data=x;});
     byDir.forEach((b,d)=>firsts.push({key:getStreamId(b.first.r)+'|'+d,...b}));
   });
+
+  buildPayloadModel(isCis,hasAck,num,add);
+  analyzeTiming(isCis,seBase,num,add);
 
   // Payload: a direction whose events mostly start with a null PDU carries no audio (e.g. unidirectional) → not flagged
   const pst={};
@@ -534,12 +596,179 @@ function analyzeIssues(){
   issues.sort((a,b)=>a.oi-b.oi);
 }
 
+// Packets of each stream (rows with an Event Counter) in capture order
+function packetsByStream(num){
+  const ecCol=detectedFields.eventCounter,m=new Map();
+  rawData.forEach((r,oi)=>{if(isNaN(num(r,ecCol)))return;const sid=getStreamId(r);if(!m.has(sid))m.set(sid,[]);m.get(sid).push(oi);});
+  return m;
+}
+
+// ============================================================
+//  PAYLOAD MODEL (FT / BN)
+//  A sender repeats one payload (same SN) until it is acked or reaches its flush point,
+//  FT events after it was generated; both ends then advance SN/NESN. So per stream+
+//  direction, data packets form one payload while the SN stays the same and the first
+//  transmission is less than FT events back. With FT=1 this is "per event", as before.
+//  Ack of a transmission: C→P by the P→C reply in the same subevent; P→C by the next
+//  C→P (same event, or a later one while the payload can still be retried). A later
+//  C→P past the flush point says nothing, since NESN also advances at the flush.
+//  Outcome: 'first' / 'retx' (same event) / 'carry' (later event, FT>1) / 'lost', or
+//  'open' when the capture ends before the flush point. Without any ack information a
+//  CRC-OK copy that the other side answered counts as delivered (inferred).
+//  Delivery entries: BN payloads are expected per event; an event where the direction
+//  sent nothing is short BN payloads unless the next FT-1 events carry the extra ones.
+// ============================================================
+function buildPayloadModel(isCis,hasAck,num,add){
+  const f=detectedFields,dc=getDirCol(),ecCol=f.eventCounter;
+  const dirs=dc!==undefined?[...new Set(rawData.map(r=>r[dc]))].sort((a,b)=>isCtoPDir(b)-isCtoPDir(a)):[''];
+  packetsByStream(num).forEach((list,sid)=>{
+    let lo=Infinity,hi=-Infinity;list.forEach(oi=>{const e=num(rawData[oi],ecCol);if(e<lo)lo=e;if(e>hi)hi=e;});
+    dirs.forEach(d=>{
+      const isC=d?isCtoPDir(d):true,{bn,ft,src}=linkParams(sid,isC),key=sid+'|'+d;
+      const insts=[],evSeen=new Map(); // ec → true if this direction sent data, false if only null PDUs
+      let cur=null;
+      list.forEach((oi,i)=>{
+        const r=rawData[oi];if(dc!==undefined&&r[dc]!==d)return;
+        const p=pktInfo.get(oi),ec=num(r,ecCol);
+        evSeen.set(ec,!!evSeen.get(ec)||!p.nul);
+        if(p.nul)return;
+        const sn=num(r,f.sn);
+        const fresh=!cur||(isNaN(sn)||isNaN(cur.sn)?ec!==cur.e0:sn!==cur.sn||ec-cur.e0>=ft);
+        if(fresh){cur={e0:ec,sn,tx:[]};insts.push(cur);}
+        cur.tx.push({oi,i,ec,err:p.err,noresp:p.resp===false});
+        p.retx=cur.tx.length-1;p.carry=ec>cur.e0;p.inst=cur;
+      });
+      insts.forEach((s,n)=>{
+        // Ack: any packet of the other side, from the first transmission until this direction starts its next
+        // payload (or the flush point), whose NESN moved past this SN. Null PDUs count too: they still carry NESN.
+        // From a later event only a CRC-OK packet counts, and not for a copy the sniffer saw corrupted, since
+        // the flush also advances NESN.
+        let ok=null,answeredLast=false;
+        const last=s.tx[s.tx.length-1],acks=isCis&&hasAck&&!isNaN(s.sn);
+        if(acks){
+          const endI=n+1<insts.length?insts[n+1].tx[0].i:list.length;
+          for(let j=s.tx[0].i+1;j<endI&&!ok;j++){
+            const qi=list[j],q=pktInfo.get(qi);if(q.c===isC)continue;
+            const qr=rawData[qi],qe=num(qr,ecCol);if(qe>s.e0+ft-1)break;
+            const qn=num(qr,f.nesn);if(isNaN(qn))continue;
+            if(j>last.i)answeredLast=true;
+            if(qn===s.sn)continue;
+            let t=null;s.tx.forEach(x=>{if(x.i<j)t=x;});
+            if(qe!==t.ec&&(errorRows.has(qi)||t.err))continue;
+            ok=t;
+          }
+        }
+        if(ok)s.inferred=false;
+        else{
+          // No ack information for the last copy (no SN/NESN, or a P→C with no C→P after it before the
+          // flush point): a CRC-OK copy that wasn't left unanswered counts as delivered (inferred)
+          const cand=acks?(answeredLast?[]:[last]):s.tx;
+          ok=cand.find(t=>!t.noresp&&!t.err)||null;
+          // Without SN/NESN: the sender switching to a null PDU before the flush point means it saw the ack
+          if(!ok&&!acks&&bn===1){
+            const endI=n+1<insts.length?insts[n+1].tx[0].i:list.length;
+            for(let j=last.i+1;j<endI&&!ok;j++){const q=pktInfo.get(list[j]);if(q.c!==isC||!q.nul)continue;if(num(rawData[list[j]],ecCol)>s.e0+ft-1)break;ok=last;}
+          }
+          if(ok)s.inferred=true;
+        }
+        if(ok){s.okEc=ok.ec;s.st=ok===s.tx[0]?'first':ok.ec>s.e0?'carry':'retx';}
+        else s.st=hi>=s.e0+ft-1?'lost':'open';
+        s.tx.forEach(t=>{
+          if(!t.err||s.st==='open')return;
+          if(s.st==='lost')add('crcLost',t.oi,undefined,`Flush 시점(Event ${s.e0+ft-1})까지 전달 확인 안 됨`+(ft>1?` · FT=${ft}`:''));
+          else add('crcRecovered',t.oi,undefined,s.okEc>t.ec?`다음 이벤트(Event ${s.okEc})에서 전달 확인 · FT=${ft}`:'같은 이벤트 안에서 전달 확인');
+        });
+      });
+      // Delivery entries per event
+      const byE=new Map();insts.forEach(s=>{if(!byE.has(s.e0))byE.set(s.e0,[]);byE.get(s.e0).push(s);});
+      // A payload is first sent within FT-1 events of its generation or never (flushed), so by event ec at
+      // least BN per audio event up to ec-(FT-1) must have started; any shortfall is payloads never sent.
+      // Events with only null PDUs carry no audio and expect none.
+      const entries=[];
+      if(insts.length){
+        const expCum=new Map();let E=0,A=0,M=0;
+        for(let ec=lo;ec<=hi;ec++){
+          const fresh=byE.get(ec)||[],seen=evSeen.get(ec);
+          E+=seen===false?0:bn;expCum.set(ec,E);A+=fresh.length;
+          fresh.forEach(s=>entries.push({ec,st:s.st==='open'?undefined:s.st,oi:s.tx[0].oi,inst:s}));
+          if(seen===false&&!fresh.length)entries.push({ec,st:null});
+          const due=ec-(ft-1),need=due>=lo?expCum.get(due):0;
+          if(A+M<need){for(let k=A+M;k<need;k++)entries.push({ec:due,st:'lost',miss:true});M=need-A;}
+        }
+        entries.sort((x,y)=>x.ec-y.ec);
+      }
+      sduModel.set(key,{sid,dir:d,list:entries.filter(e=>e.st!==undefined)});
+      linkInfo.set(key,{bn,ft,src});
+    });
+  });
+}
+
+// ============================================================
+//  TIMING (beta)
+//  Anchor = the event's lowest-subevent C→P moved back to SE1 by (SE-1)·Sub_Interval.
+//  Anchor Timing: consecutive anchors (≤ 8 events apart) differ from Δevent·ISO_Interval
+//  by more than the tolerance — one shifted event is marked on itself and on the next.
+//  Slot Timing: a C→P sits off anchor + (SE-1)·Sub_Interval, or a P→C reply's gap after
+//  its C→P differs from that stream's usual gap for the same C→P length.
+//  ISO/Sub interval come from the panel, else the median spacing in the capture.
+// ============================================================
+function analyzeTiming(isCis,seBase,num,add){
+  const f=detectedFields,dc=getDirCol(),ecCol=f.eventCounter,seCol=f.subevent;
+  if(!issueChecks.anchorTiming.on&&!issueChecks.slotTiming.on)return;
+  const tol=+isoVal('tolUs')||20,slotOn=issueChecks.slotTiming.on;
+  const us=v=>(v>=0?'+':'')+Math.round(v)+' µs',ms=v=>(v/1000).toFixed(3)+' ms';
+  packetsByStream(num).forEach((list,sid)=>{
+    const ev=new Map();
+    list.forEach(oi=>{
+      const r=rawData[oi],t=tsUs(r[f.timestamp]);if(isNaN(t))return;
+      const ec=num(r,ecCol);if(!ev.has(ec))ev.set(ec,[]);
+      ev.get(ec).push({oi,t,se:num(r,seCol),c:dc!==undefined?isCtoPDir(r[dc]):true,len:num(r,f.payloadLen),nul:pktInfo.get(oi).nul});
+    });
+    const ecs=[...ev.keys()].sort((a,b)=>a-b);
+    const subs=[];
+    if(seCol!==undefined)ev.forEach(L=>{const cs=L.filter(x=>x.c&&!isNaN(x.se)).sort((a,b)=>a.se-b.se);for(let i=1;i<cs.length;i++)if(cs[i].se>cs[i-1].se)subs.push((cs[i].t-cs[i-1].t)/(cs[i].se-cs[i-1].se));});
+    const subEst=median(subs),sub=isoUser.subMs!=null?isoUser.subMs*1000:subEst;
+    const anchors=[];
+    ecs.forEach(ec=>{
+      const cs=ev.get(ec).filter(x=>x.c);if(!cs.length)return;
+      let a=cs[0];cs.forEach(x=>{if(!isNaN(x.se)&&(isNaN(a.se)||x.se<a.se))a=x;});
+      const off=!isNaN(a.se)&&!isNaN(sub)?(a.se-seBase)*sub:0;
+      anchors.push({ec,t:a.t-off,oi:a.oi,se:a.se,dev:null});
+    });
+    const steps=[];for(let i=1;i<anchors.length;i++){const de=anchors[i].ec-anchors[i-1].ec;if(de>=1&&de<=4)steps.push((anchors[i].t-anchors[i-1].t)/de);}
+    const isoEst=median(steps),iso=isoUser.isoMs!=null?isoUser.isoMs*1000:isoEst;
+    const flagged=[];
+    if(issueChecks.anchorTiming.on&&!isNaN(iso))for(let i=1;i<anchors.length;i++){
+      const A=anchors[i],B=anchors[i-1],de=A.ec-B.ec;if(de<1||de>8)continue;
+      A.dev=(A.t-B.t)-de*iso;
+      if(Math.abs(A.dev)>tol){A.flag=true;add('anchorTiming',A.oi,undefined,`앵커 간격 ${ms(A.t-B.t)}${de>1?` (${de}이벤트)`:''} · 예상 ${ms(de*iso)} → ${us(A.dev)}`);}
+    }
+    if(slotOn&&!isNaN(sub))anchors.forEach(A=>{
+      ev.get(A.ec).forEach(x=>{
+        if(!x.c||isNaN(x.se)||x.oi===A.oi)return;
+        const dev=x.t-(A.t+(x.se-seBase)*sub);
+        if(Math.abs(dev)>tol){flagged.push({ec:A.ec,dev,oi:x.oi});add('slotTiming',x.oi,undefined,`SE${x.se} C→P 송신 시각이 예상보다 ${us(dev)} (Sub_Interval ${ms(sub)})`);}
+      });
+    });
+    // Reply gap: P→C right after its C→P in the same event and subevent, grouped by the C→P length
+    if(slotOn&&isCis){
+      const gaps=new Map();
+      ev.forEach(L=>{for(let i=1;i<L.length;i++){const p=L[i],c=L[i-1];if(p.c||!c.c||p.se!==c.se&&!(isNaN(p.se)&&isNaN(c.se)))continue;const k=c.nul?'null':String(c.len);if(!gaps.has(k))gaps.set(k,[]);gaps.get(k).push({g:p.t-c.t,oi:p.oi,ec:num(rawData[p.oi],ecCol)});}});
+      gaps.forEach(G=>{
+        if(G.length<5)return;const med=median(G.map(x=>x.g));
+        G.forEach(x=>{const dev=x.g-med;if(Math.abs(dev)>tol){flagged.push({ec:x.ec,dev,oi:x.oi});add('slotTiming',x.oi,undefined,`응답 간격 ${ms(x.g)} · 평소 ${ms(med)} → ${us(dev)}`);}});
+      });
+    }
+    timingInfo.set(sid,{iso,isoEst,sub,subEst,tol,anchors,flagged});
+  });
+}
+
 // ============================================================
 //  DERIVED COLUMNS (Packet Table)
 //  Appended after the CSV columns so sorting, column filters, search and export
 //  treat them like any other column. Columns without any value are left out.
 // ============================================================
-const DERIVED_DESC={Pair:'C→P 패킷에 P→C 응답이 있었는지',Ack:'상대 응답의 NESN 기준 ACK / NACK',Retx:'같은 이벤트 안에서 몇 번째 재전송인지','Payload State':'Data / Null PDU / 이상 (Empty · Len≠ · Zero)',Issues:'Issues 탭 검사 결과'};
+const DERIVED_DESC={Pair:'C→P 패킷에 P→C 응답이 있었는지',Ack:'상대 응답의 NESN 기준 ACK / NACK',Retx:'같은 payload의 몇 번째 재전송인지 (FT>1이면 다음 이벤트로 넘어간 재전송은 "이월")','Payload State':'Data / Null PDU / 이상 (Empty · Len≠ · Zero)',Issues:'Issues 탭 검사 결과'};
 let baseColCount=0, issueTypesByRow=new Map();
 
 function appendDerivedColumns(){
@@ -550,7 +779,7 @@ function appendDerivedColumns(){
   const cols={
     Pair:p=>p.resp===true?'OK':p.resp===false?'No Resp':'',
     Ack:p=>p.ack===true?'ACK':p.ack===false?'NACK':'',
-    Retx:p=>p.retx>0?'#'+p.retx:'',
+    Retx:p=>p.retx>0?'#'+p.retx+(p.carry?' (이월)':''):'',
     'Payload State':(p,t)=>!hasPayload?'':t.includes('payloadZero')?'Zero':t.includes('payloadLen')?'Len≠':t.includes('payloadEmpty')?'Empty':p.nul===true?'Null':p.nul===false?'Data':'',
     Issues:(p,t)=>t.map(k=>label[k]).join(', '),
   };
@@ -577,7 +806,7 @@ function renderIssues(){
   const vis=issues.filter(it=>sc===null||activeStreams.has(it.sid));
   const typeLabel=Object.fromEntries(ISSUE_TYPES.map(t=>[t.key,t.label]));
 
-  let h='<div class="issue-cards">';
+  let h=isoPanelHtml()+'<div class="issue-cards">';
   ISSUE_TYPES.forEach(t=>{
     const ck=issueChecks[t.key],n=vis.filter(i=>i.type===t.key).length;
     const sel=issueSel&&issueSel.type===t.key&&issueSel.si===undefined;
@@ -589,16 +818,18 @@ function renderIssues(){
   const dirs=dc!==undefined?[...new Set(rawData.map(r=>r[dc]))].sort((a,b)=>isCtoPDir(b)-isCtoPDir(a)):[''];
   const sids=sc!==null?streamIds.filter(s=>activeStreams.has(s)):[null];
   const onTypes=ISSUE_TYPES.filter(t=>issueChecks[t.key].on);
-  h+=`<table class="issue-matrix"><thead><tr><th>Stream</th><th>Dir</th><th class="sum" title="오디오 SDU가 전달된 이벤트 비율 (첫 전송 + 재전송 성공) / (전달 + 손실)">전달률</th><th class="sum" title="연속으로 손실된 이벤트 수의 최댓값 — 길수록 PLC로 숨기기 어려움">최대 연속 손실</th>${onTypes.map(t=>`<th>${t.label}</th>`).join('')}</tr></thead><tbody>`;
+  const anyCarry=[...deliv.values()].some(g=>g.ft>1);
+  h+=`<table class="issue-matrix"><thead><tr><th>Stream</th><th>Dir</th><th class="sum" title="BN: 이벤트당 payload 수 · FT: 한 payload를 보낼 수 있는 이벤트 수 (위 ISO 파라미터)">BN/FT</th><th class="sum" title="전달된 payload 비율 = (첫 전송 + 재전송 + 다음 이벤트에서 성공) / (전달 + 손실). BN>1이면 이벤트당 BN개를 셈">전달률</th>${anyCarry?'<th class="sum" title="FT>1이라 다음 이벤트로 넘어가 전달된 payload 수">FT 이월</th>':''}<th class="sum" title="연속으로 손실된 payload 수의 최댓값 — 길수록 PLC로 숨기기 어려움">최대 연속 손실</th>${onTypes.map(t=>`<th>${t.label}</th>`).join('')}</tr></thead><tbody>`;
   sids.forEach((sid,si)=>dirs.forEach((d,di)=>{
     h+='<tr>';
     if(di===0)h+=`<td rowspan="${dirs.length}" style="color:${getColor(sid,null).fg};font-weight:600;">${escHtml(sid===null?'All':streamLabel(sid))}</td>`;
     h+=`<td style="color:${getColor(sid,d||null).fg};">${escHtml(d?dirShort(d):'—')}</td>`;
-    const g=deliv.get(sid+'|'+d),n={first:0,retx:0,lost:0};let run=0,mx=0;
-    if(g)g.list.forEach(e=>{if(e.st)n[e.st]++;if(e.st==='lost'){run++;mx=Math.max(mx,run);}else run=0;});
-    const tot=n.first+n.retx+n.lost;
-    h+=tot?`<td class="sum${n.lost?' bad':''}" title="첫 전송 성공 ${n.first} · 재전송 후 성공 ${n.retx} · 손실 ${n.lost} / ${tot} events">${((n.first+n.retx)/tot*100).toFixed(2)}%</td><td class="sum${mx?' bad':''}">${mx}</td>`
-      :'<td class="sum" title="오디오 데이터 없음 (Null PDU만)">—</td><td class="sum">—</td>';
+    const g=deliv.get(sid+'|'+d),n={first:0,retx:0,carry:0,lost:0,miss:0,inf:0};let run=0,mx=0;
+    if(g)g.list.forEach(e=>{if(e.st){n[e.st]++;if(e.miss)n.miss++;if(e.inst&&e.inst.inferred&&e.st!=='lost')n.inf++;}if(e.st==='lost'){run++;mx=Math.max(mx,run);}else run=0;});
+    const ok=n.first+n.retx+n.carry,tot=ok+n.lost;
+    h+=`<td class="sum bnft" title="${g?escHtml('출처: '+g.src):''}">${g?g.bn+' / '+g.ft:'—'}</td>`;
+    h+=tot?`<td class="sum${n.lost?' bad':''}" title="첫 전송 성공 ${n.first} · 같은 이벤트 재전송 후 성공 ${n.retx} · 다음 이벤트에서 성공 ${n.carry} · 손실 ${n.lost}${n.miss?` (그중 한 번도 송신 안 됨 ${n.miss})`:''} / ${tot} payloads${n.inf?` · ACK 정보 없이 CRC로 추정한 전달 ${n.inf}`:''}">${(ok/tot*100).toFixed(2)}%</td>${anyCarry?`<td class="sum${n.carry?' carry':''}">${n.carry||'·'}</td>`:''}<td class="sum${mx?' bad':''}">${mx}</td>`
+      :`<td class="sum" title="오디오 데이터 없음 (Null PDU만)">—</td>${anyCarry?'<td class="sum">—</td>':''}<td class="sum">—</td>`;
     onTypes.forEach(t=>{
       const n=vis.filter(i=>i.type===t.key&&i.sid===sid&&i.dir===d).length;
       const sel=issueSel&&issueSel.type===t.key&&issueSel.si===si&&issueSel.di===di;
@@ -641,6 +872,57 @@ function renderIssues(){
   panel.querySelectorAll('.issue-card:not(.off)').forEach(el=>el.onclick=()=>toggle({type:el.dataset.type}));
   panel.querySelectorAll('td.ic').forEach(el=>el.onclick=()=>toggle({type:el.dataset.type,si:+el.dataset.si,di:+el.dataset.di}));
   const ba=document.getElementById('btnIssueAll');if(ba)ba.onclick=()=>{issueSel=null;renderIssues();};
+  bindIsoPanel();
+}
+
+// ISO parameter panel (top of the Issues tab)
+let isoOpen=false;
+const ISO_INPUTS=[['isoBnC','bnC','int'],['isoFtC','ftC','int'],['isoBnP','bnP','int'],['isoFtP','ftP','int'],['isoIso','isoMs','num'],['isoSub','subMs','num'],['isoTol','tolUs','num']];
+function isoPanelHtml(){
+  const v=k=>isoUser[k]!==undefined&&isoUser[k]!==null?isoUser[k]:'';
+  const sids=getStreamCol()!==null?streamIds:[null],dc=getDirCol();
+  const dirOf=isC=>dc===undefined?'':[...new Set(rawData.map(r=>r[dc]))].find(d=>isCtoPDir(d)===isC);
+  const li=(sid,isC)=>linkInfo.get(sid+'|'+(dirOf(isC)??''));
+  const fmt=x=>x?`${x.bn}/${x.ft}`:'—';
+  const est=sids.map(sid=>({sid,c:li(sid,true),p:li(sid,false),t:timingInfo.get(sid)}));
+  const ms=x=>x===undefined||isNaN(x)?'—':(x/1000).toFixed(3)+' ms';
+  const t0=est.find(e=>e.t&&!isNaN(e.t.iso));
+  const sum=`C→P BN/FT ${fmt(est[0]&&est[0].c)} · P→C ${fmt(est[0]&&est[0].p)}`+(t0?` · ISO ${ms(t0.t.iso)}${isoUser.isoMs!=null?'':' (추정)'}`:'')+` · 허용 ±${isoVal('tolUs')} µs`;
+  // An ISO interval outside 5 ms – 4 s means the timestamp unit is probably wrong
+  const odd=est.some(e=>e.t&&!isNaN(e.t.isoEst)&&(e.t.isoEst<5000||e.t.isoEst>4e6));
+  let h=`<details class="iso-box" id="isoBox"${isoOpen?' open':''}><summary>ISO 파라미터 <span class="iso-sum">${escHtml(sum)}</span>${odd?'<span style="color:#d29922;">· Timestamp 단위 확인 필요</span>':''}</summary><div class="iso-body">`;
+  h+=`<div class="iso-grid">`;
+  [['C→P','C'],['P→C','P']].forEach(([lb,x])=>{h+=`<div class="grp"><span class="grp-t">${lb}</span><label>BN<input id="isoBn${x}" type="number" min="1" max="15" step="1" value="${v('bn'+x)}" placeholder="${fmt(est[0]&&est[0][x.toLowerCase()]).split('/')[0]}"></label><label>FT<input id="isoFt${x}" type="number" min="1" max="255" step="1" value="${v('ft'+x)}" placeholder="${fmt(est[0]&&est[0][x.toLowerCase()]).split('/')[1]||''}"></label></div>`;});
+  const pe=k=>{const x=est.map(e=>e.t&&e.t[k]).find(y=>y!==undefined&&!isNaN(y));return x===undefined?'추정 불가':(x/1000).toFixed(3);};
+  h+=`<label>ISO_Interval (ms)<input id="isoIso" type="number" min="0" step="0.001" value="${v('isoMs')}" placeholder="${pe('isoEst')}"></label>`;
+  h+=`<label>Sub_Interval (ms)<input id="isoSub" type="number" min="0" step="0.001" value="${v('subMs')}" placeholder="${pe('subEst')}"></label>`;
+  h+=`<label>Timestamp 단위<select id="isoTs">${[['auto','자동 (없으면 ms)'],['s','s'],['ms','ms'],['us','µs'],['ns','ns']].map(([k,l])=>`<option value="${k}"${isoVal('tsUnit')===k?' selected':''}>${l}</option>`).join('')}</select></label>`;
+  h+=`<label>허용 오차 (µs)<input id="isoTol" type="number" min="1" step="1" value="${v('tolUs')}" placeholder="${ISO_DEFAULTS.tolUs}"></label>`;
+  h+=`<button class="btn btn-primary btn-sm" id="isoApply">적용</button><button class="btn btn-sm" id="isoClear">입력 비우기</button></div>`;
+  h+=`<table class="iso-est"><thead><tr><th>Stream</th><th>C→P BN/FT</th><th>P→C BN/FT</th><th>ISO 간격 추정</th><th>Sub 간격 추정</th></tr></thead><tbody>`;
+  est.forEach(e=>{h+=`<tr><td style="color:${getColor(e.sid,null).fg};">${escHtml(e.sid===null?'All':streamLabel(e.sid))}</td><td title="${escHtml(e.c?e.c.src:'')}">${fmt(e.c)} <span class="cell-muted">${escHtml(e.c?e.c.src:'')}</span></td><td title="${escHtml(e.p?e.p.src:'')}">${fmt(e.p)} <span class="cell-muted">${escHtml(e.p?e.p.src:'')}</span></td><td>${e.t?ms(e.t.isoEst):'—'}</td><td>${e.t?ms(e.t.subEst):'—'}</td></tr>`;});
+  h+=`</tbody></table>`;
+  h+=`<div class="iso-note">BN/FT를 비우면 CSV의 BN·FT 컬럼 값을, 없으면 1을 씁니다 (FT=1이면 이전과 같은 이벤트 단위 판정). FT는 LL_CIS_REQ나 LE CIS Established 이벤트에서 확인할 수 있습니다. ISO/Sub 간격을 비우면 타임스탬프에서 추정합니다.${odd?' <b>추정 ISO 간격이 5 ms~4 s 범위를 벗어났습니다. Timestamp 단위를 확인하세요.</b>':''}</div>`;
+  h+=`</div></details>`;
+  return h;
+}
+function bindIsoPanel(){
+  const box=document.getElementById('isoBox');if(!box)return;
+  box.addEventListener('toggle',()=>{isoOpen=box.open;});
+  document.getElementById('isoApply').onclick=()=>{
+    const next={};let bad=false;
+    ISO_INPUTS.forEach(([id,k,kind])=>{
+      const el=document.getElementById(id),raw=el.value.trim();el.style.borderColor='';
+      if(raw==='')return;
+      const n=+raw;
+      if(!isFinite(n)||n<=0||(kind==='int'&&(!Number.isInteger(n)||n<1))){el.style.borderColor='#f85149';bad=true;return;}
+      next[k]=n;
+    });
+    const ts=document.getElementById('isoTs').value;if(ts!=='auto')next.tsUnit=ts;
+    if(bad)return;
+    isoUser=next;isoOpen=true;saveMapping();runAnalysis();
+  };
+  document.getElementById('isoClear').onclick=()=>{ISO_INPUTS.forEach(([id])=>{document.getElementById(id).value='';});document.getElementById('isoTs').value='auto';};
 }
 
 // ============================================================
@@ -934,37 +1216,10 @@ function chartMM(id,e){
 //  direction, CRC lost, or a C→P SDU the Peripheral never answered),
 //  null = no audio sent (only null PDUs).
 // ============================================================
+// Entries come from the payload model (see buildPayloadModel): one per expected payload, in event order
 function computeDelivery(){
-  const ecCol=detectedFields.eventCounter,dc=getDirCol();if(ecCol===undefined)return[];
-  const dirs=dc!==undefined?[...new Set(rawData.map(r=>r[dc]))].sort((a,b)=>isCtoPDir(b)-isCtoPDir(a)):[''];
-  const isCis=getStreamType()==='CIS'&&dirs.length>=2;
-  const evs=new Map();
-  rawData.forEach((r,oi)=>{
-    const ec=parseInt(r[ecCol]);if(isNaN(ec))return;const sid=getStreamId(r),d=dc!==undefined?r[dc]:'';
-    if(!evs.has(sid))evs.set(sid,new Map());const m=evs.get(sid);if(!m.has(ec))m.set(ec,new Map());
-    const e=m.get(ec);if(!e.has(d))e.set(d,[]);e.get(d).push(oi);
-  });
   const out=[];
-  (getStreamCol()!==null?streamIds:[null]).forEach(sid=>{
-    const m=evs.get(sid);if(!m)return;
-    const ecs=[...m.keys()].sort((a,b)=>a-b),lo=ecs[0],hi=ecs[ecs.length-1];
-    dirs.forEach(d=>{
-      const list=[];
-      for(let ec=lo;ec<=hi;ec++){
-        const e=m.get(ec),pk=e?e.get(d)||[]:[];let st;
-        if(!pk.length)st='lost';
-        else{
-          const data=pk.filter(oi=>!(pktInfo.get(oi)||{}).nul);
-          if(!data.length)st=null;
-          else if(data.some(oi=>(issueTypesByRow.get(oi)||[]).includes('crcLost')))st='lost';
-          else if(isCis&&isCtoPDir(d)&&data.every(oi=>(pktInfo.get(oi)||{}).resp===false))st='lost';
-          else st=data.some(oi=>(pktInfo.get(oi)||{}).retx>0)?'retx':'first';
-        }
-        list.push({ec,st,oi:pk[0]});
-      }
-      out.push({sid,dir:d,list});
-    });
-  });
+  (getStreamCol()!==null?streamIds:[null]).forEach(sid=>sduModel.forEach(g=>{if(g.sid===sid)out.push({...g,...linkInfo.get(sid+'|'+g.dir)});}));
   return out;
 }
 const groupShort=(sid,dir)=>`${sid===null?'All':sid}${dir?' '+dirShort(dir):''}`;
@@ -1055,6 +1310,7 @@ function buildTimeline() {
   tb+=`<button class="tl-mode-btn${tlMode==='rssi'?' active':''}" data-mode="rssi">RSSI</button>`;
   tb+=`<button class="tl-mode-btn${tlMode==='channel'?' active':''}" data-mode="channel">Channel</button>`;
   tb+=`<button class="tl-mode-btn${tlMode==='pairing'?' active':''}" data-mode="pairing">Packet Pairing</button>`;
+  tb+=`<button class="tl-mode-btn${tlMode==='timing'?' active':''}" data-mode="timing" title="앵커 간격과 Subevent 송신 시각의 편차 (µs)">Timing β</button>`;
   tb+=`</div>`;
   tb+=`<button class="btn btn-sm" id="btnTlReset">Reset Zoom</button>`;
   tb+=`<button class="btn btn-sm" id="btnTlSelApply" style="display:none;">Filter Selection → Table</button>`;
@@ -1091,9 +1347,10 @@ function buildTimeline() {
 }
 
 function drawTimeline() {
-  const lg=document.getElementById('tlLegend'); if(lg&&tlMode!=='grid') lg.innerHTML='';
+  const lg=document.getElementById('tlLegend'); if(lg&&tlMode!=='grid'&&tlMode!=='timing') lg.innerHTML='';
   if (tlMode === 'grid') { drawTimelineGrid(); return; }
   if (tlMode === 'pairing') { drawTimelinePairing(); return; }
+  if (tlMode === 'timing') { drawTimelineTiming(); return; }
   // RSSI or Channel mode: X=Timestamp, Y=RSSI or Channel, per stream+direction
   const wrap=document.getElementById('tlCanvasWrap');
   const canvas=document.getElementById('tlCanvas');
@@ -1229,6 +1486,69 @@ function drawTimeline() {
     ctx.font='10px Segoe UI';ctx.fillText(label.length>20?label.substring(0,20)+'…':label,lgX+8,lgY+3);
     lgX+=ctx.measureText(label.length>20?label.substring(0,20)+'…':label).width+22;
     if(lgX>cW-100){lgX=labelW+pad+10;lgY+=14;}
+  }
+}
+
+// ========== TIMING VIEW (beta) ==========
+// X = Event Counter. Lines: each event's anchor-interval deviation from Δevent·ISO_Interval.
+// Triangles: Subevent send times / reply gaps flagged by Slot Timing. Band = ± tolerance.
+function drawTimelineTiming(){
+  const wrap=document.getElementById('tlCanvasWrap'),canvas=document.getElementById('tlCanvas'),ctx=canvas.getContext('2d');
+  const dpr=window.devicePixelRatio||1,cW=wrap.clientWidth,cH=wrap.clientHeight||400;
+  canvas.width=cW*dpr;canvas.height=cH*dpr;canvas.style.width=cW+'px';canvas.style.height=cH+'px';ctx.scale(dpr,dpr);
+  tlHitBoxes=[];ctx.fillStyle='#0d1117';ctx.fillRect(0,0,cW,cH);
+  const sids=[...timingInfo.keys()].filter(s=>getStreamCol()===null||activeStreams.has(s));
+  const lg=document.getElementById('tlLegend');
+  const msg=t=>{if(lg)lg.innerHTML='';ctx.fillStyle='#8b949e';ctx.font='14px Segoe UI';ctx.textAlign='center';ctx.fillText(t,cW/2,cH/2);ctx.textAlign='left';};
+  if(!timingInfo.size)return msg(detectedFields.timestamp===undefined?'Timestamp 컬럼이 없어 타이밍을 볼 수 없습니다 (상단 Columns에서 지정)':'타이밍을 계산할 수 있는 패킷이 없습니다');
+  if(!sids.length)return msg('No visible streams');
+  const tol=isoVal('tolUs');
+  const pts=[],marks=[];
+  sids.forEach(sid=>{const T=timingInfo.get(sid);T.anchors.forEach(a=>{if(a.dev!==null)pts.push({sid,...a});});T.flagged.forEach(m=>marks.push({sid,...m}));});
+  const all=sids.flatMap(sid=>timingInfo.get(sid).anchors.map(a=>a.ec));
+  if(!all.length)return msg('앵커를 찾을 수 없습니다 (C→P 패킷 필요)');
+  let ecMin=Infinity,ecMax=-Infinity;all.forEach(e=>{if(e<ecMin)ecMin=e;if(e>ecMax)ecMax=e;});
+  const labelW=60,pad=20,topPad=16,botPad=30,chartW=(cW-labelW-pad*2)*tlZoom,chartH=cH-topPad-botPad,range=ecMax-ecMin||1;
+  const xOf=ec=>labelW+pad+(ec-ecMin)/range*chartW-tlPanX;
+  let ext=tol*2;[...pts,...marks].forEach(p=>{ext=Math.max(ext,Math.abs(p.dev));});ext*=1.15;
+  const yOf=v=>topPad+chartH/2-(v/ext)*(chartH/2);
+  // Grid, tolerance band, zero line
+  ctx.strokeStyle='#161b22';ctx.fillStyle='#484f58';ctx.font='10px Segoe UI';ctx.textAlign='right';
+  for(let i=-4;i<=4;i++){const v=ext*i/4,y=yOf(v);ctx.beginPath();ctx.moveTo(labelW,y);ctx.lineTo(cW,y);ctx.stroke();ctx.fillText((v>=0?'+':'')+Math.round(v),labelW-4,y+3);}
+  ctx.textAlign='left';
+  ctx.fillStyle='rgba(63,185,80,0.08)';ctx.fillRect(labelW,yOf(tol),cW-labelW,yOf(-tol)-yOf(tol));
+  ctx.strokeStyle='rgba(63,185,80,0.5)';ctx.setLineDash([4,4]);[tol,-tol].forEach(v=>{ctx.beginPath();ctx.moveTo(labelW,yOf(v));ctx.lineTo(cW,yOf(v));ctx.stroke();});ctx.setLineDash([]);
+  ctx.save();ctx.translate(12,topPad+chartH/2);ctx.rotate(-Math.PI/2);ctx.fillStyle='#8b949e';ctx.font='11px Segoe UI';ctx.textAlign='center';ctx.fillText('편차 (µs)',0,0);ctx.restore();ctx.textAlign='left';
+  ctx.save();ctx.beginPath();ctx.rect(labelW,0,cW-labelW,cH);ctx.clip();
+  // Event Counter grid
+  const visMin=ecMin+(tlPanX/chartW)*range,visMax=ecMin+((tlPanX+cW-labelW)/chartW)*range;
+  const step=Math.max(1,Math.pow(10,Math.floor(Math.log10(Math.max(1,(visMax-visMin)/8)))));
+  ctx.fillStyle='#484f58';
+  for(let g=Math.floor(visMin/step)*step;g<=visMax+step;g+=step){const x=xOf(g);if(x<labelW||x>cW)continue;ctx.strokeStyle='#161b22';ctx.beginPath();ctx.moveTo(x,topPad);ctx.lineTo(x,topPad+chartH);ctx.stroke();ctx.fillText(Math.round(g),x-8,cH-botPad+14);}
+  const r=Math.max(2,3/Math.sqrt(tlZoom));
+  sids.forEach(sid=>{
+    const col=getColor(sid,null).fg,P=pts.filter(p=>p.sid===sid);
+    ctx.strokeStyle=col;ctx.globalAlpha=0.45;ctx.lineWidth=1;ctx.beginPath();
+    P.forEach((p,i)=>{const x=xOf(p.ec),y=yOf(p.dev);if(i&&p.ec-P[i-1].ec<=8)ctx.lineTo(x,y);else ctx.moveTo(x,y);});ctx.stroke();ctx.globalAlpha=1;
+    P.forEach(p=>{
+      const x=xOf(p.ec),y=yOf(p.dev);if(x<labelW-5||x>cW+5)return;
+      ctx.fillStyle=p.flag?'#f85149':col;ctx.beginPath();ctx.arc(x,y,p.flag?4:r,0,Math.PI*2);ctx.fill();
+      tlHitBoxes.push({x,y,r:Math.max(4,r),tooltip:`<div class="tt-title" style="color:${col}">${escHtml(streamLabel(sid))} — Event ${p.ec}</div><div class="tt-row"><span class="tt-key">앵커 간격 편차</span><span class="tt-val${p.flag?' tt-error':''}">${p.dev>=0?'+':''}${Math.round(p.dev)} µs</span></div><div class="tt-row"><span class="tt-key">허용 오차</span><span class="tt-val">± ${tol} µs</span></div>`});
+    });
+    marks.filter(m=>m.sid===sid).forEach(m=>{
+      const x=xOf(m.ec),y=yOf(m.dev);if(x<labelW-5||x>cW+5)return;
+      ctx.fillStyle=col;ctx.strokeStyle='#f85149';ctx.lineWidth=1.5;ctx.beginPath();ctx.moveTo(x,y-6);ctx.lineTo(x+5,y+4);ctx.lineTo(x-5,y+4);ctx.closePath();ctx.fill();ctx.stroke();
+      const it=issues.find(i=>i.oi===m.oi&&i.type==='slotTiming');
+      tlHitBoxes.push({x,y,r:6,tooltip:`<div class="tt-title" style="color:${col}">${escHtml(streamLabel(sid))} — Event ${m.ec}</div><div class="tt-error">${escHtml(it?it.detail:'')}</div>`});
+    });
+  });
+  ctx.restore();
+  ctx.fillStyle='#8b949e';ctx.font='10px Segoe UI';ctx.fillText('Event Counter →',labelW+8,cH-4);
+  if(tlZoom>1){ctx.fillStyle='#484f58';ctx.fillText(`Zoom: ${tlZoom.toFixed(1)}x`,cW-80,12);}
+  if(lg){
+    const n=k=>issues.filter(i=>i.type===k&&sids.includes(i.sid)).length;
+    lg.innerHTML=sids.map(sid=>`<span><i style="background:${getColor(sid,null).fg};"></i>${escHtml(streamLabel(sid))}</span>`).join('')
+      +`<span><i style="background:#f85149;border-radius:50%;"></i>Anchor Timing ${n('anchorTiming')}</span><span>▲ Slot Timing ${n('slotTiming')}</span><span><i style="background:rgba(63,185,80,0.25);border:1px dashed rgba(63,185,80,0.7);"></i>± ${tol} µs</span>`;
   }
 }
 
@@ -1450,6 +1770,8 @@ const GRID_KINDS = {
   nul:       {label:'Null PDU',        color:'#30363d'},
   ok:        {label:'OK',              color:'#238636'},
   retx:      {label:'재전송',           color:'#d29922'},
+  carry:     {label:'FT 이월 재전송',    color:'#39c5bb'},
+  timing:    {label:'Timing β',         color:'rgba(232,90,173,0.35)', stroke:'#e85aad'},
   payload:   {label:'Payload 이상',     color:'#58a6ff'},
   nack:      {label:'NACK (CRC OK)',   color:'#a371f7'},
   recovered: {label:'CRC → Recovered', color:'#db6d28'},
@@ -1488,17 +1810,17 @@ function buildGridModel(){
       const ses=evs.get(ec);
       if(i>0&&ec-ecs[i-1]>1)gaps.push({sid,from:ecs[i-1]+1,to:ec-1});
       const maxSe=Math.max(...ses.keys());
-      // First data (non-null) subevent per direction: later data packets of that direction are retransmissions
-      const firstSe=dirs.map(()=>Infinity);
-      ses.forEach((pk,se)=>pk.forEach((p,di)=>{if(p&&!p.nul)firstSe[di]=Math.min(firstSe[di],se);}));
       for(let se=seMin;se<=maxSe;se++){
         const pk=ses.get(se)||[];
         dirs.forEach((d,di)=>{
           const p=pk[di];let kind=null;
           if(p){
             const t=new Set(p.issues.map(it=>it.type));
+            // Retransmission = a later copy of the same payload (payload model): 'carry' when it is in a later event (FT>1)
+            const pi=pktInfo.get(p.oi)||{};
             kind=t.has('crcLost')?'lost':t.has('crcRecovered')?'recovered':t.has('nack')?'nack'
-              :(t.has('payloadEmpty')||t.has('payloadLen')||t.has('payloadZero'))?'payload':p.nul?'nul':se>firstSe[di]?'retx':'ok';
+              :(t.has('payloadEmpty')||t.has('payloadLen')||t.has('payloadZero'))?'payload'
+              :(t.has('anchorTiming')||t.has('slotTiming'))?'timing':p.nul?'nul':pi.carry?'carry':pi.retx>0?'retx':'ok';
           }else if(d&&!isCtoPDir(d)&&pk.some((q,qi)=>q&&isCtoPDir(dirs[qi]))){
             kind='noresp';
           }else if(!pk.some(q=>q)){
@@ -1746,6 +2068,85 @@ function generateSampleData(){
   return{headers:['Item','Timestamp','Direction','CIG ID','CIS ID','Event Counter','Subevent','SN','NESN','NPI','PHY','Channel','RSSI','CRC','Payload Length','Payload'],data:rows};
 }
 
+// Sample 2 (FT / BN / timing): 1 CIG, 2 CIS, ISO interval 10 ms, NSE 4, Sub_Interval 1.1 ms, LE 2M.
+// C→P BN=2 FT=2 (two 5 ms frames per event, 60 B), P→C BN=1 FT=2 (40 B).
+// Both link layers are simulated: a payload is retried until acked or until its flush point
+// (end of event gen+FT-1; with BN>1 payload k flushes after subevent NSE/BN·(k+1) of that event),
+// SN/NESN advance on ack or flush at both ends, a corrupted C→P is still answered (with NESN
+// unchanged), and the Central ends the event once its payloads are acked and every pending
+// Peripheral payload has been received. Reply = C→P end + T_IFS 150 µs; timestamp jitter ±2 µs.
+// Injected: 0x01:60 all C→P fail and 0x01:61 SE1 fails (C payloads carried to 61), 0x02:90 Peripheral
+// misses the event, 0x02:140-141 all C→P fail (payloads of 140 lost after FT), 0x01:170 all P→C fail.
+// Timing: 0x02:120 anchor +80 µs (that event only), 0x01 anchor step +60 µs from event 300,
+// 0x01:200 SE2 C→P +50 µs, 0x02:250 SE1 P→C reply +40 µs.
+// Capture loss: 0x01 events 350-351, 0x02:330 SE2.
+// Returns ground truth too (payload outcomes, injected timing), used by tests.
+function generateSampleData2(o){
+  const opt=Object.assign({seed:20261022,events:400,bnC:2,ftC:2,bnP:1,ftP:2,nse:4,iso:10,sub:1.1,crc:0.04,mismatch:0,noResp:0.004,timing:true,drops:true,inject:true},o||{});
+  const rnd=mulberry32(opt.seed);
+  const C2P='Central→Peripheral',P2C='Peripheral→Central',LEN_C=60,LEN_P=40,T0=5;
+  const cisIds=['0x01','0x02'];
+  const inj=opt.inject?{'0x01:60':{cAll:1},'0x01:61':{cSe:[1]},'0x02:90':{noRespAll:1},'0x02:140':{cAll:1},'0x02:141':{cAll:1},'0x01:170':{pAll:1}}:{};
+  const tim=opt.timing?{'0x02:120':{anchor:80},'0x01:200':{slot:[2,50]},'0x02:250':{resp:[1,40]}}:{};
+  const stepAt=opt.timing?{sid:'0x01',ev:300,us:60}:null;
+  const dropped=(cis,ev,se)=>opt.drops&&((cis==='0x01'&&(ev===350||ev===351))||(cis==='0x02'&&ev===330&&se===2));
+  const air=len=>((len>0?len+15:11)*4)/1000; // ms on LE 2M (preamble, AA, header, MIC, CRC)
+  const hex=n=>Array.from({length:n},()=>Math.floor(rnd()*256).toString(16).padStart(2,'0').toUpperCase()).join(' ');
+  const rows=[],truth={payloads:[],timing:[]};
+  const st={};cisIds.forEach(c=>st[c]={C:{tx:0,rx:0},P:{tx:0,rx:0},payC:[],payP:[]});
+  const mk=(cis,dir,ev,k,bn,ft)=>{const p={sid:cis,dir,gen:ev,k,flushEv:ev+ft-1,flushSe:bn>1?Math.floor(opt.nse/bn)*(k+1):opt.nse,delivered:false,okEv:null,txs:0,firstRow:null};truth.payloads.push(p);return p;};
+  const passed=(p,ev,se)=>ev>p.flushEv||(ev===p.flushEv&&se>p.flushSe);
+  const push=(t,dir,cis,ev,se,s,ne,npi,ch,rssi,fail,len,payload)=>{if(dropped(cis,ev,se))return -1;rows.push([String(rows.length+1),(t+(rnd()-0.5)*0.004).toFixed(3)+' ms',dir,'0x00',cis,String(ev),String(se),String(s),String(ne),String(npi),'LE 2M',String(ch),String(rssi),fail?'Fail':'OK',String(len),payload]);return rows.length-1;};
+  for(let ev=0;ev<opt.events;ev++){
+    cisIds.forEach((cis,ci)=>{
+      const S=st[cis],C=S.C,P=S.P,ij=inj[cis+':'+ev]||{},tm=tim[cis+':'+ev]||{};
+      for(let k=0;k<opt.bnC;k++)S.payC.push(mk(cis,'C→P',ev,k,opt.bnC,opt.ftC));
+      for(let k=0;k<opt.bnP;k++)S.payP.push(mk(cis,'P→C',ev,k,opt.bnP,opt.ftP));
+      let anchor=T0+ev*opt.iso+ci*opt.nse*opt.sub;
+      if(tm.anchor){anchor+=tm.anchor/1000;truth.timing.push({sid:cis,ec:ev,kind:'anchorTiming'},{sid:cis,ec:ev+1,kind:'anchorTiming'});}
+      if(stepAt&&cis===stepAt.sid&&ev>=stepAt.ev){anchor+=stepAt.us/1000;if(ev===stepAt.ev)truth.timing.push({sid:cis,ec:ev,kind:'anchorTiming'});}
+      for(let se=1;se<=opt.nse;se++){
+        // Flush points: sender and receiver both move past payloads whose flush point has passed
+        while(C.tx<S.payC.length&&passed(S.payC[C.tx],ev,se))C.tx++;
+        while(P.rx<S.payC.length&&passed(S.payC[P.rx],ev,se))P.rx++;
+        while(P.tx<S.payP.length&&passed(S.payP[P.tx],ev,se))P.tx++;
+        while(C.rx<S.payP.length&&passed(S.payP[C.rx],ev,se))C.rx++;
+        if(se>1&&C.tx>=S.payC.length&&C.rx>=S.payP.length)break; // Central closes the event
+        const ch=Math.floor(rnd()*37),rssi=-50-Math.floor(rnd()*10);
+        // C→P
+        const cp=C.tx<S.payC.length?S.payC[C.tx]:null,cLen=cp?LEN_C:0;
+        let tC=anchor+(se-1)*opt.sub;
+        if(tm.slot&&tm.slot[0]===se){tC+=tm.slot[1]/1000;}
+        const cFail=!!(ij.cAll||(ij.cSe||[]).includes(se))||rnd()<opt.crc;
+        const cSniff=opt.mismatch&&rnd()<opt.mismatch?!cFail:cFail;
+        const oiC=push(tC,C2P,cis,ev,se,C.tx&1,C.rx&1,cp?0:1,ch,rssi,cSniff,cLen,cp?hex(cLen):'');
+        if(cp){cp.txs++;if(cp.firstRow===null)cp.firstRow=oiC;}
+        if(tm.slot&&tm.slot[0]===se&&oiC>=0)truth.timing.push({sid:cis,ec:ev,kind:'slotTiming',oi:oiC});
+        if(ij.noRespAll||rnd()<opt.noResp)continue; // Peripheral missed the packet: no reply
+        if(!cFail){
+          if(cp&&(C.tx&1)===(P.rx&1)&&P.rx<S.payC.length){const q=S.payC[P.rx];q.delivered=true;q.okEv=ev;P.rx++;}
+          if(P.tx<S.payP.length&&(C.rx&1)!==(P.tx&1))P.tx++; // Peripheral learns its payload was acked
+        }
+        // P→C
+        const pp=P.tx<S.payP.length?S.payP[P.tx]:null,pLen=pp?LEN_P:0;
+        let tP=tC+air(cLen)+0.150;
+        if(tm.resp&&tm.resp[0]===se)tP+=tm.resp[1]/1000;
+        const pFail=!!ij.pAll||rnd()<opt.crc;
+        const pSniff=opt.mismatch&&rnd()<opt.mismatch?!pFail:pFail;
+        const oiP=push(tP,P2C,cis,ev,se,P.tx&1,P.rx&1,pp?0:1,ch,rssi-3,pSniff,pLen,pp?hex(pLen):'');
+        if(pp){pp.txs++;if(pp.firstRow===null)pp.firstRow=oiP;}
+        if(tm.resp&&tm.resp[0]===se&&oiP>=0)truth.timing.push({sid:cis,ec:ev,kind:'slotTiming',oi:oiP});
+        if(!pFail){
+          if(pp&&(P.tx&1)===(C.rx&1)&&C.rx<S.payP.length){const q=S.payP[C.rx];q.delivered=true;q.okEv=ev;C.rx++;}
+          if(C.tx<S.payC.length&&(P.rx&1)!==(C.tx&1))C.tx++; // Central learns its payload was acked
+        }
+      }
+    });
+  }
+  return{headers:['Item','Timestamp','Direction','CIG ID','CIS ID','Event Counter','Subevent','SN','NESN','NPI','PHY','Channel','RSSI','CRC','Payload Length','Payload'],data:rows,truth,
+    iso:{bnC:opt.bnC,ftC:opt.ftC,bnP:opt.bnP,ftP:opt.ftP}};
+}
+
 // ============================================================
 //  EXPORT
 // ============================================================
@@ -1768,7 +2169,7 @@ const MAP_FIELDS = [
   ['subevent','Subevent','Subevent Skip, ISO Event Grid'], ['sn','SN','NACK, 복구/손실 판정'], ['nesn','NESN','NACK, 복구/손실 판정'],
   ['npi','NPI','Null PDU 판정'], ['crc','CRC','Corrupted'], ['status','Status','Corrupted'],
   ['payloadLen','Payload Length','Payload 검사, Null PDU 판정'], ['payload','Payload (hex)','All-zero Payload'],
-  ['channel','Channel','채널별 CRC 에러율'], ['rssi','RSSI','RSSI 히트맵'], ['timestamp','Timestamp','Timeline RSSI/Channel'],
+  ['channel','Channel','채널별 CRC 에러율'], ['rssi','RSSI','RSSI 히트맵'], ['timestamp','Timestamp','Timing 검사 (beta), Timeline RSSI/Channel'],
   ['item','Item (#)','이슈 목록 번호'],
 ];
 const MAP_STORE = 'ellisysViewer.mapping:';
@@ -1777,10 +2178,10 @@ let mapDraft = null, mapDirVals = [], mapErrVals = {};
 function mappingKey() { return MAP_STORE + headers.slice(0, baseColCount).join('\u0001'); }
 function saveMapping() {
   const fields = Object.fromEntries(MAP_FIELDS.map(([k]) => [k, detectedFields[k] !== undefined ? headers[detectedFields[k]] : null]));
-  try { localStorage.setItem(mappingKey(), JSON.stringify({ fields, dir: dirOverride, err: errOverride })); } catch (e) {}
+  try { localStorage.setItem(mappingKey(), JSON.stringify({ fields, dir: dirOverride, err: errOverride, iso: isoUser })); } catch (e) {}
 }
 // Apply a saved mapping for this header set; returns false when there is none
-function loadSavedMapping() {
+function loadSavedMapping(keepIso) {
   let m;
   try { const v = localStorage.getItem(mappingKey()); if (!v) return false; m = JSON.parse(v); } catch (e) { return false; }
   MAP_FIELDS.forEach(([k]) => {
@@ -1789,6 +2190,7 @@ function loadSavedMapping() {
     if (i < 0 || i >= baseColCount) delete detectedFields[k]; else detectedFields[k] = i;
   });
   dirOverride = m.dir || {}; errOverride = m.err || {}; dirCache.clear();
+  if (keepIso === undefined) isoUser = m.iso || {};
   return true;
 }
 function topValues(ci, n) {
@@ -1857,12 +2259,14 @@ document.getElementById('mapApply').onclick = () => {
 // ============================================================
 //  INIT
 // ============================================================
-function loadData(h,d){
+// iso: ISO parameters to use instead of the saved ones (the samples pass their own)
+function loadData(h,d,iso){
   // Rows must match the header length so derived columns line up
   d.forEach(r=>{while(r.length<h.length)r.push('');r.length=h.length;});
   headers=h;rawData=d;baseColCount=h.length;
   detectedFields=detectFields(headers);dirOverride={};errOverride={};dirCache.clear();
-  loadSavedMapping();
+  isoUser=iso?{...iso}:{};
+  loadSavedMapping(iso);
   document.getElementById('dropzone').classList.add('hidden');
   document.getElementById('mainView').classList.add('active');
   ['btnColumns','btnLoad','btnExport'].forEach(id=>document.getElementById(id).style.display='');
@@ -1896,8 +2300,11 @@ dz.addEventListener('dragleave',()=>dz.classList.remove('drag-over'));
 dz.addEventListener('drop',e=>{e.preventDefault();dz.classList.remove('drag-over');if(e.dataTransfer.files[0])readFile(e.dataTransfer.files[0]);});
 document.getElementById('fileInput').addEventListener('change',e=>{if(e.target.files[0])readFile(e.target.files[0]);});
 function readFile(f){const r=new FileReader();r.onload=e=>{const{headers:h,data:d}=parseCSV(e.target.result);if(h.length>0&&d.length>0)loadData(h,d);else alert('Could not parse CSV.');};r.readAsText(f);}
-document.getElementById('btnSample').onclick=()=>{const{headers:h,data:d}=generateSampleData();loadData(h,d);};
-document.getElementById('btnSample2').onclick=()=>{const{headers:h,data:d}=generateSampleData();loadData(h,d);};
+document.getElementById('btnSample').onclick=()=>{const{headers:h,data:d}=generateSampleData();loadData(h,d,{});};
+document.getElementById('btnSample2').onclick=()=>{const{headers:h,data:d}=generateSampleData();loadData(h,d,{});};
+const loadSampleFt=()=>{const g=generateSampleData2();loadData(g.headers,g.data,g.iso);};
+document.getElementById('btnSampleFt').onclick=loadSampleFt;
+document.getElementById('btnSampleFt2').onclick=loadSampleFt;
 document.getElementById('btnLoad').onclick=()=>{document.getElementById('mainView').classList.remove('active');document.getElementById('dropzone').classList.remove('hidden');['btnColumns','btnLoad','btnExport'].forEach(id=>document.getElementById(id).style.display='none');};
 document.getElementById('btnExport').onclick=exportReport;
 window.addEventListener('resize',()=>{const at=document.querySelector('.tab.active');if(at){if(at.dataset.tab==='timeline')drawTimeline();if(at.dataset.tab==='issues'&&causeOpen)drawCause();}});

@@ -8,6 +8,9 @@ air log에서 주로 보는 네 가지를 자동으로 찾아준다.
 2. 패킷이 깨진 경우 (재전송으로 복구됐는지, 결국 손실됐는지)
 3. Payload가 유의미한 데이터로 채워졌는지 (Null PDU, 길이 이상, 전부 0)
 4. Event Counter 또는 Subevent를 건너뛴 경우
+5. (beta) 이벤트 앵커나 Subevent 송신 시각이 예상 스케줄에서 벗어난 경우
+
+손실 판정은 BN/FT를 반영한 payload 단위다. FT>1이면 다음 이벤트에서 재전송돼 전달된 payload는 손실로 세지 않는다.
 
 ## 사용법
 
@@ -23,6 +26,8 @@ air log에서 주로 보는 네 가지를 자동으로 찾아준다.
 검사는 CSV에 있는 컬럼에 따라 자동으로 켜지고 꺼진다. Overview에 아래 컬럼을 추가한 뒤 Export하면 모든 검사가 동작한다.
 
 > CIS ID(또는 BIS ID), CIG ID(또는 BIG Handle), Direction, Event Counter, Subevent, SN, NESN, NPI, CRC/Status, Payload Length, Payload(hex), Channel, RSSI, Timestamp
+
+BN, FT 컬럼은 없어도 된다. 상단 Issues 탭의 **ISO 파라미터**에서 입력할 수 있고, 둘 다 없으면 BN=1, FT=1로 본다 (이전과 같은 이벤트 단위 판정).
 
 컬럼이 없어 검사할 수 없으면 Issues 탭 카드에 "필요 컬럼: SN, NESN"처럼 이유가 표시된다.
 
@@ -49,14 +54,28 @@ air log에서 주로 보는 네 가지를 자동으로 찾아준다.
 
 ### Tab 1: Issues
 
+**ISO 파라미터** (접힘, 맨 위): 판정에 쓰는 값을 확인하고 고친다. 입력한 값은 컬럼 매핑과 함께 브라우저에 저장된다.
+
+| 항목 | 쓰이는 곳 | 비우면 |
+|---|---|---|
+| C→P / P→C BN | 이벤트당 기대 payload 수 | CSV의 BN 컬럼, 없으면 1 |
+| C→P / P→C FT | payload를 다시 보낼 수 있는 이벤트 수 (Flush 시점) | CSV의 FT 컬럼, 없으면 1 |
+| ISO_Interval, Sub_Interval (ms) | 타이밍 검사의 예상 시각 | 타임스탬프에서 추정 (아래 표에 스트림별 추정값) |
+| Timestamp 단위 | 타임스탬프 해석 | 값에 붙은 단위, 없으면 ms |
+| 허용 오차 (µs) | 타이밍 검사 기준 | 20 µs |
+
+추정 ISO 간격이 5 ms~4 s를 벗어나면 Timestamp 단위가 틀렸을 가능성이 높아 경고를 띄운다. BN/FT는 `LL_CIS_REQ`나 `LE CIS Established` 이벤트에서 확인할 수 있다.
+
 **검사 카드**: 검사별 건수. 클릭하면 아래 목록이 그 검사로 걸러진다.
 
 **매트릭스**: 행은 스트림×방향, 열은 아래 항목이다.
 
 | 열 | 의미 |
 |---|---|
-| 전달률 | 오디오 SDU가 전달된 이벤트 비율 = (첫 전송 성공 + 재전송 후 성공) / (전달 + 손실). 마우스를 올리면 내역 표시 |
-| 최대 연속 손실 | 연속으로 손실된 이벤트 수의 최댓값. 길수록 PLC로 숨기기 어려움 |
+| BN/FT | 판정에 쓴 값. 마우스를 올리면 출처 (입력 / CSV / 기본값) |
+| 전달률 | 전달된 payload 비율 = (첫 전송 성공 + 재전송 후 성공 + 다음 이벤트에서 성공) / (전달 + 손실). BN>1이면 이벤트당 BN개를 센다. 마우스를 올리면 내역 표시 |
+| FT 이월 | FT>1일 때만 표시. 다음 이벤트로 넘어가 전달된 payload 수 |
+| 최대 연속 손실 | 연속으로 손실된 payload 수의 최댓값. 길수록 PLC로 숨기기 어려움 |
 | 검사별 건수 | 칸을 클릭하면 그 스트림·방향·검사로 목록이 걸러짐 |
 
 손실이 있으면 빨간색으로 표시된다.
@@ -77,7 +96,7 @@ air log에서 주로 보는 네 가지를 자동으로 찾아준다.
 |---|---|
 | Pair | C→P 행에만 표시: `OK` / `No Resp` |
 | Ack | 상대 응답의 NESN 기준 `ACK` / `NACK` |
-| Retx | 같은 이벤트 안 재전송 순번 `#1`, `#2` … |
+| Retx | 같은 payload의 재전송 순번 `#1`, `#2` …. 다음 이벤트로 넘어간 재전송은 `#1 (이월)` |
 | Payload State | `Data` / `Null` / `Empty` / `Len≠` / `Zero` |
 | Issues | 그 패킷에 걸린 검사 이름 |
 
@@ -115,7 +134,9 @@ X축: Event Counter
 | 표시 | 의미 |
 |---|---|
 | 초록 / 회색 | 정상 / Null PDU |
-| 노랑 | 재전송 |
+| 노랑 | 재전송 (같은 이벤트) |
+| 청록 | FT 이월 재전송 (이전 이벤트에서 시작한 payload) |
+| 분홍 테두리 | Timing (beta) 검사에 걸린 패킷 |
 | 파랑 | Payload 이상 |
 | 보라 | NACK인데 스니퍼 CRC는 OK (수신 측 문제 의심) |
 | 주황 / 빨강 | CRC 에러 후 복구 / 손실 |
@@ -130,6 +151,10 @@ X는 Timestamp, Y는 RSSI 또는 채널 번호. 스트림+방향별 점과 선�
 #### Packet Pairing
 
 같은 Event Counter에서 C→P와 P→C가 짝을 이루는지 이벤트 단위로 보여준다. 한쪽만 있으면 빨간 ✕를 표시한다.
+
+#### Timing β
+
+X는 Event Counter, Y는 편차(µs). 스트림별 선은 앵커 간격이 `Δ이벤트 × ISO_Interval`에서 벗어난 정도이고, 녹색 띠가 허용 오차다. 빨간 점은 Anchor Timing, ▲는 Slot Timing에 걸린 패킷이다. 점에 마우스를 올리면 값이 나온다.
 
 #### 공통 조작
 
@@ -153,13 +178,30 @@ X는 Timestamp, Y는 RSSI 또는 채널 번호. 스트림+방향별 점과 선�
 |---|---|---|
 | No Response | Direction, Event Counter | C→P 다음 패킷이 P→C가 아님 |
 | NACK | + SN, NESN | 응답의 NESN이 보낸 패킷의 SN과 같음 (상대가 받지 못해 재전송 요청). P→C는 다음 C→P의 NESN으로 판단 |
-| Corrupted · Recovered | CRC 또는 Status, Event Counter | 에러였지만 같은 이벤트 안에서 같은 SN이 ACK됨, 또는 깨진 패킷이 Null PDU |
-| Corrupted · Lost | 위와 같음 | 이벤트가 끝날 때까지 전달이 확인되지 않음. 응답 없는 C→P 재전송은 전달로 보지 않음 |
+| Corrupted · Recovered | CRC 또는 Status, Event Counter | 에러였지만 그 payload가 Flush 전에 ACK됨 (FT>1이면 다음 이벤트 포함), 또는 깨진 패킷이 Null PDU |
+| Corrupted · Lost | 위와 같음 | 그 payload의 Flush 시점(첫 송신 이벤트 + FT − 1)까지 전달이 확인되지 않음. 응답 없는 C→P 재전송은 전달로 보지 않음 |
 | Empty Payload | Payload Length 또는 NPI | 이벤트의 첫 송신이 Null PDU. 대부분의 이벤트가 Null로 시작하는 방향(단방향 스트림 등)은 제외 |
 | Length Mismatch | Payload Length | 그 스트림+방향의 대표 길이(최빈값)와 다름 |
 | All-zero Payload | Payload | payload 바이트가 전부 0x00 |
 | EC Skip | Event Counter | 스트림+방향별로 Event Counter가 불연속. 양방향이 같은 구간에서 빠지면 "캡처 누락 의심"으로 표시 |
 | Subevent Skip | Event Counter, Subevent | 이벤트 안에서 양방향 모두 없는 Subevent 번호가 있음 (시작 번호는 캡처에서 자동 판단) |
+| Anchor Timing (beta) | Timestamp, Event Counter | 이웃한 두 이벤트(8개 이내)의 앵커 간격이 `Δ이벤트 × ISO_Interval`과 허용 오차 이상 다름. 한 이벤트만 어긋나면 그 이벤트와 다음 이벤트 두 곳에 표시된다 |
+| Slot Timing (beta) | Timestamp, Event Counter, Subevent | C→P가 `앵커 + (SE−1) × Sub_Interval`에서 허용 오차 이상 벗어남, 또는 P→C 응답이 앞 C→P로부터 떨어진 간격이 그 스트림의 평소 간격(같은 C→P 길이끼리 비교)과 허용 오차 이상 다름 |
+
+**Payload 모델 (FT / BN)**
+
+손실·복구 판정과 전달률은 payload 단위로 한다.
+- 같은 방향의 데이터 패킷은 SN이 같고 첫 송신에서 FT 이벤트가 지나지 않은 동안 하나의 payload다. SN이 바뀌거나 FT 이벤트가 지나면 다음 payload다. 송신 측과 수신 측 모두 Flush 시점에 SN/NESN을 넘기기 때문이다.
+- ACK: 첫 송신부터 그 방향의 다음 payload가 시작되기 전까지(Flush 시점 이내) 상대 패킷의 NESN이 이 SN을 넘어갔으면 전달이다. Null PDU의 NESN도 쓴다. 다른 이벤트의 패킷으로 판단할 때는 스니퍼 CRC가 OK인 패킷만 쓴다.
+- ACK 정보가 없으면 (SN/NESN 컬럼 없음, 또는 Flush 전에 뒤따르는 C→P가 없는 P→C) 응답을 받은 CRC OK 송신이 있으면 전달로 추정한다.
+- 이벤트마다 BN개의 payload가 생긴다고 보고, 생성 후 FT−1 이벤트 안에 한 번도 송신되지 않은 수만큼 손실로 센다 (이벤트 누락, 상대 무응답 등). Null PDU만 보낸 이벤트는 오디오가 없는 것으로 보고 세지 않는다.
+- 캡처가 Flush 시점 전에 끝난 payload는 판정하지 않는다.
+
+FT=1, BN=1이면 이전 버전과 같은 결과가 나온다.
+
+**타이밍 기준값**
+- 앵커: 이벤트에서 Subevent 번호가 가장 작은 C→P 송신 시각에서 `(SE−1) × Sub_Interval`을 뺀 값
+- ISO_Interval, Sub_Interval: 패널에 입력한 값, 없으면 캡처의 중앙값 (ISO는 4이벤트 이내 앵커 간격, Sub는 같은 이벤트 C→P 간격)
 
 **방향 판정**: 화살표 앞쪽, 즉 송신 측으로 판단한다.
 - C→P: `Central→Peripheral`, `C->P`, `Master → Slave`, `M->S`, `Central`, `Master`
@@ -196,7 +238,7 @@ X는 Timestamp, Y는 RSSI 또는 채널 번호. 스트림+방향별 점과 선�
 | 페이로드 | Payload Length, Payload, Data |
 | ISO 파라미터 | NSE, BN, FT, ISO Interval |
 
-구분자(쉼표, 탭, 세미콜론)는 자동으로 감지한다. `.btt`는 Ellisys 전용 바이너리이므로 CSV로 Export해야 한다.
+구분자(쉼표, 탭, 세미콜론)는 자동으로 감지한다. Timestamp는 `12.345 ms`, `12345 µs`, `0.012345 s`, `12 345.000 µs`(자릿수 구분 공백), `0:00:00.012345` 형식을 읽는다. `.btt`는 Ellisys 전용 바이너리이므로 CSV로 Export해야 한다.
 
 ---
 
@@ -227,6 +269,33 @@ X는 Timestamp, Y는 RSSI 또는 채널 번호. 스트림+방향별 점과 선�
   - SE2 누락 (0x01:80, 0x02:260)
   - 전부 0인 payload (0x01:120), 길이 이상 (0x02:310), Null PDU (0x01:150~151)
 
+### Sample: FT/BN · Timing
+
+헤더의 "Sample: FT/BN · Timing" 버튼. 두 link layer를 그대로 시뮬레이션한다 (payload는 ACK 또는 Flush까지 재전송, SN/NESN은 ACK나 Flush 시점에 양쪽에서 증가).
+
+- 설정: CIG 1개, CIS 2개, ISO Interval 10ms, NSE 4, Sub_Interval 1.1ms, LE 2M. C→P BN=2 FT=2 (60B), P→C BN=1 FT=2 (40B)
+- 일부러 넣은 이상
+  - 0x01:60 C→P 전부 실패, 0x01:61 SE1 실패 → C payload가 61로 이월돼 전달
+  - 0x02:90 Peripheral이 이벤트 전체를 놓침
+  - 0x02:140~141 C→P 전부 실패 → 140의 payload 2개가 FT 후 손실
+  - 0x01:170 P→C 전부 실패 → 다음 이벤트로 이월
+  - 타이밍: 0x02:120 앵커 +80µs (그 이벤트만), 0x01은 300부터 앵커 +60µs, 0x01:200 SE2 C→P +50µs, 0x02:250 SE1 응답 +40µs
+  - 캡처 누락: 0x01 이벤트 350~351, 0x02:330 SE2
+
+---
+
+## 테스트
+
+```
+npm i -D playwright && npx playwright install chromium
+node tests/verify.js
+```
+
+- 기존 샘플(FT=1)의 결과가 payload 모델 도입 전과 같은지
+- 시뮬레이터가 기록한 실제 결과(payload마다 전달/손실)와 판정이 모두 일치하는지 (BN 1~2, FT 1~3, CRC 4~20%, 스니퍼·수신 측 CRC 불일치 포함 7개 설정)
+- 타이밍 검사가 주입한 이상만 정확히 잡는지
+- Timestamp 형식, CSV의 BN/FT 컬럼, SN/NESN 없음, Timestamp/Direction 없음
+
 ---
 
 ## Export
@@ -242,7 +311,11 @@ X는 Timestamp, Y는 RSSI 또는 채널 번호. 스트림+방향별 점과 선�
 - **캡처 순서를 가정한다.** No Response와 NACK은 "바로 다음 패킷"으로 판단하므로, CSV가 시간순이 아니면 결과가 틀린다.
 - **타임스탬프 단위**: `us`/`µs` 표기가 있으면 µs로, 그 외에는 ms로 가정한다.
 - **BIS 전용 검사는 없다.** BN/IRC 반복 송신 누락은 검사하지 않는다. No Response와 NACK은 CIS 양방향 데이터에서만 동작한다.
-- **Corrupted · Lost는 패킷 단위로 센다.** 한 SDU가 두 번 깨진 뒤 손실되면 2건이다.
+- **Corrupted · Lost는 패킷 단위로 센다.** 한 payload가 두 번 깨진 뒤 손실되면 2건이다. 전달률은 payload 단위다.
+- **캡처 누락 구간에서는 전달률이 실제와 다를 수 있다.** 송신이 하나도 캡처되지 않은 payload는 손실로 세고, SN이 1비트라 그 앞뒤 payload가 하나로 묶일 수 있다.
+- **FT 이월은 첫 송신 이후 기준이다.** 생성된 이벤트에서 한 번도 못 보내고 다음 이벤트에서 처음 보낸 payload는 이월이 아니라 첫 전송으로 센다 (전달/손실 판정은 맞다).
+- **BN>1인 P→C**: payload마다 Flush 시점이 이벤트 중간이라, Flush 직후의 C→P NESN을 ACK로 볼 수 있다. 시뮬레이터 검증은 P→C BN=1까지만 했다.
+- **타이밍 검사는 beta다.** 타임스탬프가 패킷의 시작인지 끝인지, 해상도가 어떤지 실제 Ellisys CSV로 확인하지 않았다. 응답 간격은 같은 C→P 길이끼리 비교하므로 시작/끝 기준 차이는 상쇄되지만, 허용 오차는 캡처 해상도에 맞게 조정해야 할 수 있다.
 - 실제 Ellisys CSV로는 아직 검증하지 않았다. 컬럼명이나 Direction·CRC 값 표기가 다르면 Columns에서 맞출 수 있지만, NPI 표기(`1` = Null PDU)가 다르면 코드 수정이 필요할 수 있다. Subevent 시작 번호(0 또는 1)는 자동으로 판단한다.
 
 ---
