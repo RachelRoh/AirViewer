@@ -14,12 +14,42 @@ air log에서 주로 보는 네 가지를 자동으로 찾아준다.
 
 ## 사용법
 
-1. `ellisys_viewer.html`을 브라우저에서 열기 (더블클릭)
-2. Ellisys에서 .btt를 열고 Overview를 CSV로 Export
-3. CSV 파일을 드래그&드롭하거나 Browse로 로드
-4. 파일이 없으면 "Generate Sample Data"로 먼저 확인 가능
+Ellisys에서 .btt를 열고 Overview를 CSV로 Export한 뒤, 둘 중 하나로 연다.
 
-> 설치 불필요, 인터넷 불필요. 파일 하나로 동작하고 데이터는 외부로 전송되지 않음.
+**A. 리포트 만들기 (브라우저에 파일을 넣을 수 없는 PC)**
+
+사내 보안 정책으로 브라우저의 파일 선택·드래그가 막혀 있어도 된다. 스크립트가 CSV를 읽어 데이터가 들어 있는 HTML을 만들고, 그 파일은 더블클릭으로 열린다.
+
+- Windows: CSV 파일을 `airviewer.bat`에 끌어다 놓는다
+- 명령줄 (Windows / WSL / Linux):
+  ```
+  python airviewer.py capture.csv                  # capture_airviewer.html을 만들고 연다
+  python airviewer.py capture.csv --bn-c 2 --ft-c 2 --bn-p 1 --ft-p 2   # ISO 파라미터 지정
+  python airviewer.py capture.csv -o report.html --no-open
+  ```
+- `airviewer.py`, `airviewer.bat`, `ellisys_viewer.html`을 같은 폴더에 둔다. Python 3.8 이상, 표준 라이브러리만 쓴다.
+- CSV 인코딩(UTF-8, UTF-16, CP949)과 구분자(쉼표, 탭, 세미콜론)는 자동으로 판단한다.
+- 큰 캡처(JSON 8 MB 이상)는 gzip으로 압축해 넣는다. 17만 행 CSV(35 MB)가 17 MB 리포트가 되고 7초 정도에 열린다.
+- 만든 리포트 하나만 이슈나 메일에 붙이면 받는 사람도 바로 본다. 다시 열 때마다 분석을 새로 하므로 ISO 파라미터는 리포트 안에서 바꿀 수 있다.
+
+**B. 브라우저에서 직접 열기**
+
+1. `ellisys_viewer.html`을 브라우저에서 연다 (더블클릭)
+2. CSV 파일을 드래그&드롭하거나 Browse로 로드
+3. 파일이 없으면 "Generate Sample Data"로 먼저 확인 가능
+
+> 설치 불필요, 인터넷 불필요. 데이터는 외부로 전송되지 않는다. 스크립트도 CSV를 읽고 HTML 하나를 쓰는 것 말고는 아무것도 하지 않는다.
+
+### .btt에서 바로 읽기 (준비 중)
+
+Ellisys Remote Control API로 .btt를 열어 Export 없이 읽는 방법을 확인하는 중이다. Ellisys가 설치된 PC에서 `ellisys_probe.py`를 돌리면, API로 무엇을 읽을 수 있는지(overview 이름, 필드, CIS 항목 예시)를 짧게 출력한다. hex 바이트와 주소는 가린다.
+
+```
+python -m pip install -e "<Ellisys 설치 폴더>/Sdk/Analysis/Python"
+python ellisys_probe.py C:\traces\capture.btt --port 12345
+```
+
+공개 문서만 보고 작성한 초안이라 실제 분석기에서는 아직 돌려 보지 않았다. 출력 내용을 보고 `airviewer.py`가 .btt를 직접 받도록 확장할 예정이다.
 
 ### Export 시 넣을 컬럼
 
@@ -302,6 +332,7 @@ node tests/verify.js
 - 이상한 입력: SN 없음 + BN=2, BN 200000 입력, 동떨어진 Event Counter 한 줄, 단위 없는 초 단위 Timestamp, 다음 파일로 설정이 넘어가는지
 - 타이밍 검사가 주입한 이상만 정확히 잡는지
 - Timestamp 형식, CSV의 BN/FT 컬럼, SN/NESN 없음, Timestamp/Direction 없음
+- `airviewer.py` 리포트: UTF-8, UTF-16, CP949(한글 헤더), 탭 구분, gzip, 명령줄 ISO 파라미터, 셀 안의 `</script>`. 리포트가 저절로 열리고, 같은 데이터를 직접 넣었을 때와 결과가 같은지 확인한다 (python이 없으면 건너뜀)
 
 ---
 
