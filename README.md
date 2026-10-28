@@ -1,6 +1,6 @@
 # Ellisys LE Audio Viewer
 
-Ellisys Bluetooth Analyzer에서 내보낸 CSV로 CIS/BIS 링크를 점검하는 단일 HTML 도구.
+Ellisys Bluetooth Analyzer 트레이스(.btt)로 CIS/BIS 링크를 점검하는 단일 HTML 도구.
 
 air log에서 주로 보는 네 가지를 자동으로 찾아준다.
 
@@ -14,46 +14,59 @@ air log에서 주로 보는 네 가지를 자동으로 찾아준다.
 
 ## 사용법
 
-Ellisys에서 .btt를 열고 Overview를 CSV로 Export한 뒤, 둘 중 하나로 연다.
+### .btt에서 바로 리포트 만들기 (Remote Control API)
 
-**A. 리포트 만들기 (브라우저에 파일을 넣을 수 없는 PC)**
+Ellisys Bluetooth Analyzer를 Remote Control API로 조종해 .btt를 열고 CIS/BIS 패킷을 뽑아, 데이터가 들어 있는 HTML 리포트(`a.html`)를 .btt 옆에 만든다. Ellisys에서 Export하거나 파일을 불러올 필요가 없다.
 
-사내 보안 정책으로 브라우저의 파일 선택·드래그가 막혀 있어도 된다. 스크립트가 CSV를 읽어 데이터가 들어 있는 HTML을 만들고, 그 파일은 더블클릭으로 열린다.
-
-- Windows: CSV 파일을 `airviewer.bat`에 끌어다 놓는다
-- 명령줄 (Windows / WSL / Linux):
-  ```
-  python airviewer.py capture.csv                  # capture_airviewer.html을 만들고 연다
-  python airviewer.py capture.csv --bn-c 2 --ft-c 2 --bn-p 1 --ft-p 2   # ISO 파라미터 지정
-  python airviewer.py capture.csv -o report.html --no-open
-  ```
-- `airviewer.py`, `airviewer.bat`, `ellisys_viewer.html`을 같은 폴더에 둔다. Python 3.8 이상, 표준 라이브러리만 쓴다.
-- CSV 인코딩(UTF-8, UTF-16, CP949)과 구분자(쉼표, 탭, 세미콜론)는 자동으로 판단한다.
-- 큰 캡처(JSON 8 MB 이상)는 gzip으로 압축해 넣는다. 17만 행 CSV(35 MB)가 17 MB 리포트가 되고 7초 정도에 열린다.
-- 만든 리포트 하나만 이슈나 메일에 붙이면 받는 사람도 바로 본다. 다시 열 때마다 분석을 새로 하므로 ISO 파라미터는 리포트 안에서 바꿀 수 있다.
-
-**B. 브라우저에서 직접 열기**
-
-1. `ellisys_viewer.html`을 브라우저에서 연다 (더블클릭)
-2. CSV 파일을 드래그&드롭하거나 Browse로 로드
-3. 파일이 없으면 "Generate Sample Data"로 먼저 확인 가능
-
-> 설치 불필요, 인터넷 불필요. 데이터는 외부로 전송되지 않는다. 스크립트도 CSV를 읽고 HTML 하나를 쓰는 것 말고는 아무것도 하지 않는다.
-
-### .btt에서 바로 읽기 (준비 중)
-
-Ellisys Remote Control API로 .btt를 열어 Export 없이 읽는 방법을 확인하는 중이다. Ellisys가 설치된 PC에서 `ellisys_probe.py`를 돌리면, API로 무엇을 읽을 수 있는지(overview 이름, 필드, CIS 항목 예시)를 짧게 출력한다. hex 바이트와 주소는 가린다.
+- Windows에서는 .btt를 `airviewer.bat`에 끌어다 놓아도 된다. 만든 리포트는 브라우저로 저절로 열린다 (`--no-open`으로 끈다).
+- 리포트 하나에 데이터가 다 들어 있다. 브라우저의 파일 선택·드래그가 막힌 PC에서도 더블클릭으로 열리고, 이슈나 메일에는 그 파일만 붙이면 된다. 큰 캡처(JSON 8 MB 이상)는 gzip으로 압축해 넣는다 (`--gzip`이면 크기와 상관없이 압축).
+- ISO 파라미터를 명령줄로 줄 수 있다: `--bn-c 2 --ft-c 2 --bn-p 1 --ft-p 2` (`--nse`, `--iso-ms`, `--sub-ms`, `--tol-us`, `--ts-unit`도 있다). 리포트 안의 ISO 통계에서도 바꿀 수 있다.
 
 ```
-python -m pip install -e "<Ellisys 설치 폴더>/Sdk/Analysis/Python"
-python ellisys_probe.py C:\traces\capture.btt --port 12345
+py.exe -m pip install -r requirements.txt    # zeroc-ice (SDK는 bta_remote_api에 포함된 것을 씀)
+py.exe airviewer.py /mnt/c/traces/a.btt      # -> C:\traces\a.html
 ```
 
-공개 문서만 보고 작성한 초안이라 실제 분석기에서는 아직 돌려 보지 않았다. 출력 내용을 보고 `airviewer.py`가 .btt를 직접 받도록 확장할 예정이다.
+- `bta_remote_api/`는 저장소에 없다 (`.gitignore`). Ellisys의 [Remote Control 압축본](https://downloads.ellisys.com/remote_api_analyzer.zip)을 받아 저장소 루트에 `bta_remote_api/`로 푼다. `airviewer.py`는 그 안의 Python SDK(`Sdk/Analysis/Python`)를 그대로 쓴다.
+- Ellisys에 Remote Control 플러그인(`bta_remote_api/Binaries/RemoteControl`)이 설치·활성화돼 있어야 한다. 폴더를 Ellisys 설치 폴더에 복사하고 (DLL은 속성 → 차단 해제), Tools → Options → Remote Control에서 "Enable Remote Control on TCP/UDP port"를 켠다 (포트 12345).
+- Windows Python 3.12 이상으로 실행한다 (`py`, WSL에서는 `py.exe`). WSL의 `python3`은 zeroc-ice를 소스로 빌드해야 한다 (`libssl-dev`, `libbz2-dev` 필요).
+- 경로: `C:\...`와 `/mnt/c/...` 모두 받는다. .btt는 Ellisys가 여는 것이라 Windows 드라이브에 두는 게 안전하다.
+- 동작: Low Energy overview에 `Item = "**CIS**", "**BIS**", "**ISO**"` 쿼리를 걸고 (결과가 없으면 Item 텍스트로 거른다), 처음 200개 패킷의 Details에서 필드 이름을 알아낸 뒤 전체 패킷을 그 필드만 읽는다. `SN`, `Event Counter` 같은 뷰어 컬럼 이름으로 바꿀 수 있는 필드는 앞에 두고, 나머지 원본 필드는 뒤에 그대로 붙인다.
+- 패킷을 못 찾거나 컬럼이 안 맞으면 `--explore`로 트레이스에 실제로 있는 overview, Item 텍스트, 필드 이름을 확인하고 `--overview`, `--query`로 지정한다. 주변 기기가 많은 캡처는 `--devices AA:BB:CC:DD:EE:FF ...`로 줄이면 빠르다.
 
-### Export 시 넣을 컬럼
+### 스펙 절차 검사 (프로토타입)
 
-검사는 CSV에 있는 컬럼에 따라 자동으로 켜지고 꺼진다. Overview에 아래 컬럼을 추가한 뒤 Export하면 모든 검사가 동작한다.
+"스펙상 일어났어야 할 일이 실제로 일어났나"를 검사한다. 규칙은 `procedures.py`의 `RULES`에 데이터로 적혀 있고 두 종류다.
+
+- **sequence**: 트리거 PDU 뒤에 정해진 쪽에서 정해진 시간 안에 다음 단계가 와야 한다 (`LL_FEATURE_REQ → LL_FEATURE_RSP`, `LL_CIS_REQ → LL_CIS_RSP → LL_CIS_IND`, BR/EDR page `ID → ID → FHS → ID → POLL → NULL`)
+- **instant**: Instant부터 새 값을 써야 한다 (Connection Update는 앵커 간격, Channel Map은 사용 채널, PHY Update는 PHY)
+
+문제는 종류별로 나눈다: **깨짐** (CRC 에러, 0.1 s 안에 몰린 것은 한 건) / **안 옴** / **늦게 옴** (왔지만 시간 한도를 넘김) / **적용 안 됨** (Instant 이후에도 이전 값) / 거절 / 캡처 누락 의심 (뒤 단계는 있는데 중간이 없음) / 판정 불가 (캡처가 먼저 끝남).
+
+리포트는 한 화면이다 (탭 없음). 위쪽 구성은 항상 같고, 오른쪽 아래만 보기를 바꾼다.
+- 위: 링크마다 한 줄 (에러 수, 절차 성공 수, ISO 전달률과 손실, CRC 에러 수). 줄을 누르면 그 링크만 본다.
+- 왼쪽: 에러를 시간순으로 한 줄씩. 재전송으로 복구된 에러는 기본으로 빼고, 체크하면 함께 나온다. "시각"에 숫자를 넣으면 그 시점으로 간다.
+- 오른쪽: 고른 에러의 **기대 / 실제**, 접어 둔 근거 표 (Instant 앞뒤 간격, 절차 단계별 시각과 한도, ISO 패킷 SN/NESN/CRC), 그리고 **에어로그**. 에어로그는 모든 패킷을 시간순으로 보여주고 고른 에러의 시점으로 스크롤되며, 그 에러의 패킷이 파란 줄로 표시된다. 휠로 앞뒤를 계속 볼 수 있다 (보이는 줄만 그려서 큰 캡처도 가볍다). 빈 PDU · Null은 기본으로 숨긴다.
+- 오른쪽 보기 전환 (ISO 데이터가 있을 때): **에어로그** / **ISO Grid** (고른 에러의 Event Counter로 확대) / **ISO 통계** (ISO 파라미터 BN·FT 입력, 검사별 건수, 스트림별 전달률 매트릭스. 0건인 검사와 빈 열은 숨김). Packet Table은 에어로그와 같은 내용이라 따로 두지 않는다. 컬럼 매핑은 헤더의 Columns.
+- ISO 검사는 페이지 안에서 돌기 때문에 ISO 에러는 Python 쪽 결과(JSON)에는 없다.
+
+`procedures.py --sample`의 리포트에는 ISO 샘플(페이지의 "Sample: FT/BN · Timing" 데이터)이 샘플 링크의 CIS 수립 직후 시각으로 옮겨져 함께 들어간다. 모든 탭과 Findings가 한 파일에 나오는 모습을 볼 수 있다.
+
+```
+python3 procedures.py --sample          # -> procedures_sample.html (일부러 문제를 넣은 샘플 링크, sample_link.py)
+python3 tests/test_procedures.py
+```
+
+아직 프로토타입이다: 규칙의 스펙 근거(`spec`)는 비어 있고, 40 s LL 타임아웃이나 page 단계별 시간 한도 같은 수치는 임시값이다 (`tbd`에 표시, 리포트에도 "미확인"으로 나온다). Ellisys 트레이스에서 이벤트를 뽑는 부분은 아직 없다 (필드 이름을 실제 트레이스로 확인해야 함).
+
+### 리포트 보기
+
+- 만들어진 `a.html`을 브라우저에서 열면 바로 Issues 탭이 뜬다. 인터넷 불필요, 파일 하나로 동작하고 데이터는 외부로 전송되지 않는다.
+- 리포트의 틀은 `template/report_template.html`이다. 결과물이 아니라 스크립트가 복사해 데이터를 넣는 원본이고, 그냥 열면 샘플 데이터 버튼만 있는 첫 화면이 나온다.
+
+### 검사에 쓰는 컬럼
+
+검사는 트레이스에서 찾은 컬럼에 따라 자동으로 켜지고 꺼진다. 아래 컬럼이 모두 있으면 모든 검사가 동작한다.
 
 > CIS ID(또는 BIS ID), CIG ID(또는 BIG Handle), Direction, Event Counter, Subevent, SN, NESN, NPI, CRC/Status, Payload Length, Payload(hex), Channel, RSSI, Timestamp
 
@@ -88,8 +101,8 @@ BN, FT 컬럼은 없어도 된다. 상단 Issues 탭의 **ISO 파라미터**에�
 
 | 항목 | 쓰이는 곳 | 비우면 |
 |---|---|---|
-| C→P / P→C BN | 이벤트당 기대 payload 수 | CSV의 BN 컬럼, 없으면 1 |
-| C→P / P→C FT | payload를 다시 보낼 수 있는 이벤트 수 (Flush 시점) | CSV의 FT 컬럼, 없으면 1 |
+| C→P / P→C BN | 이벤트당 기대 payload 수 | 트레이스의 BN 컬럼, 없으면 1 |
+| C→P / P→C FT | payload를 다시 보낼 수 있는 이벤트 수 (Flush 시점) | 트레이스의 FT 컬럼, 없으면 1 |
 | NSE | BN>1일 때 payload별 Flush 시점 | 캡처에서 본 가장 큰 Subevent 번호 |
 | ISO_Interval, Sub_Interval (ms) | 타이밍 검사의 예상 시각 | 타임스탬프에서 추정 (아래 표에 스트림별 추정값) |
 | Timestamp 단위 | 타임스탬프 해석 | 값에 붙은 단위. 단위가 없으면 ms로 읽되, 그러면 ISO 간격이 5 ms~4 s를 벗어날 때 s/µs/ns 중 맞는 단위를 자동으로 고른다 |
@@ -103,7 +116,7 @@ BN, FT 컬럼은 없어도 된다. 상단 Issues 탭의 **ISO 파라미터**에�
 
 | 열 | 의미 |
 |---|---|
-| BN/FT | 판정에 쓴 값. 마우스를 올리면 출처 (입력 / CSV / 기본값) |
+| BN/FT | 판정에 쓴 값. 마우스를 올리면 출처 (입력 / 컬럼 / 기본값) |
 | 전달률 | 전달된 payload 비율 = (첫 전송 성공 + 재전송 후 성공 + 다음 이벤트에서 성공) / (전달 + 손실). BN>1이면 이벤트당 BN개를 센다. 마우스를 올리면 내역 표시 |
 | FT 이월 | FT>1일 때만 표시. 다음 이벤트로 넘어가 전달된 payload 수 |
 | 최대 연속 손실 | 연속으로 손실된 payload 수의 최댓값. 길수록 PLC로 숨기기 어려움 |
@@ -121,7 +134,7 @@ BN, FT 컬럼은 없어도 된다. 상단 Issues 탭의 **ISO 파라미터**에�
 
 ### Tab 2: Packet Table
 
-**파생 컬럼** (헤더가 파란색, CSV 컬럼 뒤에 추가됨)
+**파생 컬럼** (헤더가 파란색, 트레이스 컬럼 뒤에 추가됨)
 
 | 컬럼 | 값 |
 |---|---|
@@ -131,7 +144,7 @@ BN, FT 컬럼은 없어도 된다. 상단 Issues 탭의 **ISO 파라미터**에�
 | Payload State | `Data` / `Null` / `Empty` / `Len≠` / `Zero` |
 | Issues | 그 패킷에 걸린 검사 이름 |
 
-- 일반 컬럼과 똑같이 정렬, 필터, 검색, Export가 된다.
+- 일반 컬럼과 똑같이 정렬, 필터, 검색이 된다.
 - 값이 하나도 없는 컬럼은 추가되지 않는다. 예: SN/NESN이 없으면 Ack 컬럼은 없음.
 
 **이슈 이동**
@@ -258,7 +271,7 @@ FT=1, BN=1이면 이전 버전과 같은 결과가 나온다.
 
 ---
 
-## CSV 컬럼 자동 감지
+## 컬럼 자동 감지
 
 컬럼명으로 자동 인식하므로 고정 포맷이 필요 없다. 컬럼 하나는 필드 하나에만 매칭된다.
 
@@ -274,7 +287,7 @@ FT=1, BN=1이면 이전 버전과 같은 결과가 나온다.
 | 페이로드 | Payload Length, Payload, Data |
 | ISO 파라미터 | NSE, BN, FT, ISO Interval |
 
-구분자(쉼표, 탭, 세미콜론)는 자동으로 감지한다. Timestamp는 `12.345 ms`, `12345 µs`, `0.012345 s`, `12 345.000 µs`(자릿수 구분 공백), `0:00:00.012345` 형식을 읽는다. `.btt`는 Ellisys 전용 바이너리이므로 CSV로 Export해야 한다.
+Timestamp는 `12.345 ms`, `12345 µs`, `0.012345 s`, `12 345.000 µs`(자릿수 구분 공백), `0:00:00.012345` 형식을 읽는다.
 
 ---
 
@@ -282,12 +295,12 @@ FT=1, BN=1이면 이전 버전과 같은 결과가 나온다.
 
 상단 **Columns** 버튼을 누르면 자동 감지 결과를 확인하고 고칠 수 있다.
 
-- **필드별 CSV 컬럼**: 드롭다운으로 지정하고, 선택한 컬럼의 예시 값과 그 필드가 쓰이는 검사를 함께 보여준다.
+- **필드별 트레이스 컬럼**: 드롭다운으로 지정하고, 선택한 컬럼의 예시 값과 그 필드가 쓰이는 검사를 함께 보여준다.
 - **Direction 값 → 송신 측**: 실제로 나온 Direction 값마다 C→P / P→C를 직접 고른다.
 - **에러로 볼 값**: CRC/Status 컬럼에 실제로 나온 값마다 "에러" 여부를 체크한다.
 - **적용**하면 모든 검사를 다시 계산한다. **자동 감지로 되돌리기**는 화면의 선택만 초기화하고, 적용을 눌러야 반영된다.
-- 설정은 브라우저에 저장된다. **같은 컬럼 구성의 파일**을 다시 열면 자동으로 적용된다.
-- CIS/BIS ID나 Event Counter를 찾지 못하면 파일을 열 때 이 화면이 자동으로 뜬다.
+- 설정은 브라우저에 저장된다. **같은 컬럼 구성의 리포트**를 다시 열면 자동으로 적용된다.
+- CIS/BIS ID나 Event Counter를 찾지 못하면 리포트를 열 때 이 화면이 자동으로 뜬다.
 
 ---
 
@@ -325,36 +338,29 @@ FT=1, BN=1이면 이전 버전과 같은 결과가 나온다.
 ```
 npm i -D playwright && npx playwright install chromium
 node tests/verify.js
+python3 tests/test_airviewer.py     # airviewer.py, 가짜 분석기로 (Ellisys 앱 불필요)
 ```
 
 - 기존 샘플(FT=1)의 결과가 payload 모델 도입 전과 같은지
 - 시뮬레이터가 기록한 실제 결과(payload마다 전달/손실)와 판정이 모두 일치하는지 (BN 1~3, FT 1~3, NSE 4~5, CRC 4~30%, 스니퍼·수신 측 CRC 불일치, 캡처 누락 포함 13개 설정). `FUZZ=1 node tests/verify.js`는 240개 설정(BN 1~3, FT 1~3, NSE 4~6, CRC 10/30%, 시드 4개)을 더 돈다 (몇 분)
 - 이상한 입력: SN 없음 + BN=2, BN 200000 입력, 동떨어진 Event Counter 한 줄, 단위 없는 초 단위 Timestamp, 다음 파일로 설정이 넘어가는지
 - 타이밍 검사가 주입한 이상만 정확히 잡는지
-- Timestamp 형식, CSV의 BN/FT 컬럼, SN/NESN 없음, Timestamp/Direction 없음
-- `airviewer.py` 리포트: UTF-8, UTF-16, CP949(한글 헤더), 탭 구분, gzip, 명령줄 ISO 파라미터, 셀 안의 `</script>`. 리포트가 저절로 열리고, 같은 데이터를 직접 넣었을 때와 결과가 같은지 확인한다 (python이 없으면 건너뜀)
-
----
-
-## Export
-
-"Export Report"는 현재 데이터를 CSV로 저장한다.
-- 파생 컬럼(Pair, Ack, Retx, Payload State, Issues)이 포함된다.
-- 에러 행에는 `[ERROR]`, Gap 행에는 `[GAP:N]` 표시가 추가된다.
+- Timestamp 형식, 트레이스의 BN/FT 컬럼, SN/NESN 없음, Timestamp/Direction 없음
+- 리포트: `procedures.py --sample` 리포트가 일반 JSON과 gzip+base64 둘 다 저절로 열리고, 둘의 에러 목록과 ISO 결과가 같은지 (python이 없으면 건너뜀)
 
 ---
 
 ## 알려진 제한
 
-- **캡처 순서를 가정한다.** No Response와 NACK은 "바로 다음 패킷"으로 판단하므로, CSV가 시간순이 아니면 결과가 틀린다.
+- **캡처 순서를 가정한다.** No Response와 NACK은 "바로 다음 패킷"으로 판단하므로, 패킷이 시간순이 아니면 결과가 틀린다.
 - **타임스탬프 단위**: s/ms/µs/ns 표기를 읽고, 표기가 없으면 ms로 읽은 뒤 ISO 간격이 5 ms~4 s에 들어오도록 단위를 고른다 (Timing 검사). RSSI/Channel 타임라인의 X축은 이전처럼 `us`/`µs` 표기만 구분하고 그 외는 ms로 표시한다.
 - **BIS 전용 검사는 없다.** BN/IRC 반복 송신 누락은 검사하지 않는다. No Response와 NACK은 CIS 양방향 데이터에서만 동작한다.
 - **Corrupted · Lost는 패킷 단위로 센다.** 한 payload가 두 번 깨진 뒤 손실되면 2건이다. 전달률은 payload 단위다.
 - **캡처 누락 구간에서는 전달률이 실제와 다를 수 있다.** 캡처에서 빠진 이벤트의 payload와 송신이 하나도 캡처되지 않은 payload는 손실로 센다. 캡처된 payload의 전달/손실 판정은 시뮬레이터 검증에서 맞았다.
 - **NSE를 캡처에서 추정한다.** BN>1이면 payload별 Flush 시점이 NSE에 달려 있는데, 캡처에 NSE개의 Subevent를 다 쓴 이벤트가 없으면 NSE를 작게 잡는다. 이때는 패널에 NSE를 입력한다.
 - **Flush 시점 공식은 Core spec 원문으로 다시 확인할 필요가 있다.** `NSE − floor(NSE/BN) × (BN − i)`는 spec을 인용한 자료(ARM 특허 US20200260322A1)에서 가져왔다. 시뮬레이터도 같은 공식을 쓰므로, 공식 자체가 틀렸다면 테스트로는 잡히지 않는다.
-- **타이밍 검사는 beta다.** 타임스탬프가 패킷의 시작인지 끝인지, 해상도가 어떤지 실제 Ellisys CSV로 확인하지 않았다. 응답 간격은 같은 C→P 길이끼리 비교하므로 시작/끝 기준 차이는 상쇄되지만, 허용 오차는 캡처 해상도에 맞게 조정해야 할 수 있다.
-- 실제 Ellisys CSV로는 아직 검증하지 않았다. 컬럼명이나 Direction·CRC 값 표기가 다르면 Columns에서 맞출 수 있지만, NPI 표기(`1` = Null PDU)가 다르면 코드 수정이 필요할 수 있다. Subevent 시작 번호(0 또는 1)는 자동으로 판단한다.
+- **타이밍 검사는 beta다.** 타임스탬프가 패킷의 시작인지 끝인지, 해상도가 어떤지 실제 Ellisys 트레이스로 확인하지 않았다. 응답 간격은 같은 C→P 길이끼리 비교하므로 시작/끝 기준 차이는 상쇄되지만, 허용 오차는 캡처 해상도에 맞게 조정해야 할 수 있다.
+- 실제 Ellisys 트레이스로는 아직 검증하지 않았다. 컬럼명이나 Direction·CRC 값 표기가 다르면 Columns에서 맞출 수 있지만, NPI 표기(`1` = Null PDU)가 다르면 코드 수정이 필요할 수 있다. Subevent 시작 번호(0 또는 1)는 자동으로 판단한다.
 
 ---
 

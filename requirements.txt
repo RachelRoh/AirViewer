@@ -1,0 +1,4 @@
+# The Ellisys SDK itself is loaded from bta_remote_api/Sdk/Analysis/Python (see airviewer.py);
+# only its ZeroC Ice runtime is installed. The version must match the SDK's pre-generated bindings
+# (bta_remote_api/Sdk/Analysis/Python/pyproject.toml).
+zeroc-ice~=3.8.2

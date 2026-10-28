@@ -1,141 +1,338 @@
 #!/usr/bin/env python3
-"""Make an AirViewer report: an HTML file with the capture inside it.
+"""Turn an Ellisys .btt trace into a self-contained LE Audio report.
 
-The report opens by double-click and needs no file picker or drag & drop, so it works
-on PCs where the browser may not read local files. Nothing leaves the PC: the script
-only reads the CSV and writes one HTML file next to it.
+    python airviewer.py capture.btt                 -> capture.html
+    python airviewer.py capture.btt --explore       -> what the trace contains (field names etc.)
 
-    python airviewer.py capture.csv                 # writes capture_airviewer.html and opens it
-    python airviewer.py capture.csv -o report.html --no-open
-    python airviewer.py capture.csv --bn-c 2 --ft-c 2 --bn-p 1 --ft-p 2
-
-The CSV is an Ellisys Overview export (any column order; see README for useful columns).
-Needs Python 3.8+ and ellisys_viewer.html in the same folder. Standard library only.
+Drives the Ellisys Bluetooth Analyzer through its Remote Control API (Python SDK
+`ellisys-analysis-automation`): loads the trace, pulls the CIS/BIS packets out of the Low Energy
+overview, and embeds them in a copy of the report template, which opens straight on the analysis.
+The analyzer application must be running with the Remote Control plugin enabled (port 12345).
 """
 import argparse
-import base64
-import csv
-import datetime
-import gzip
-import io
-import json
 import os
-import pathlib
-import shutil
+import re
 import subprocess
 import sys
-import webbrowser
+import xml.etree.ElementTree as ET
+from pathlib import Path
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-TEMPLATE = os.path.join(HERE, 'ellisys_viewer.html')
-DATA_TAG = '<script id="airviewer-data" type="{type}"{enc}>{payload}</script>'
-GZIP_ABOVE = 8 * 1024 * 1024  # JSON larger than this is stored gzip+base64 (about 5-10x smaller)
+import report
+
+HERE = Path(__file__).resolve().parent
+# The SDK shipped in Ellisys' Remote Control archive (bta_remote_api) is used as is; it only
+# needs its zeroc-ice runtime installed (requirements.txt)
+SDK = HERE / "bta_remote_api" / "Sdk" / "Analysis" / "Python"
+sys.path.insert(0, str(SDK))
+try:
+    import ellisys_analysis_automation as ea
+    from ellisys_analysis_automation import ItemField
+except ModuleNotFoundError as exc:
+    sys.exit(f"{exc}. Install the SDK runtime: python -m pip install -r {HERE / 'requirements.txt'}"
+             if exc.name == "Ice" else f"{exc}. Expected the Ellisys SDK in {SDK}")
+
+# Server-side filter tried first: keeps only the ISO lines, so the rest of the capture
+# (advertising, other devices) is never transferred. Falls back to ISO_MATCH if it matches nothing.
+ISO_QUERY = 'Item = "**CIS**", "**BIS**", "**ISO**"'
+ISO_MATCH = re.compile(r"\b(CIS|BIS|ISO|Isochronous)\b", re.I)
+
+# Viewer column name -> Ellisys field/column names it can come from (first match wins).
+# Put first in the report, so the viewer's auto-detection picks these over the raw columns.
+CANONICAL = [
+    ("CIG ID", re.compile(r"^cig[ _]?(id)?$", re.I)),
+    ("CIS ID", re.compile(r"^cis[ _]?(id)?$", re.I)),
+    ("BIG Handle", re.compile(r"^big[ _]?(handle|id)?$", re.I)),
+    ("BIS ID", re.compile(r"^bis[ _]?(id|index|number)?$", re.I)),
+    ("Direction", re.compile(r"^(direction|dir)$", re.I)),
+    ("Event Counter", re.compile(r"^((cis|bis|iso)[ _]?)?event[ _]?(counter|count|number)$", re.I)),
+    ("Subevent", re.compile(r"^sub[ _-]?event([ _]?(counter|number|index))?$", re.I)),
+    ("SN", re.compile(r"^(sn|sequence number)$", re.I)),
+    ("NESN", re.compile(r"^(nesn|next expected sequence number)$", re.I)),
+    ("NPI", re.compile(r"^(npi|null pdu indicator)$", re.I)),
+    ("CRC", re.compile(r"^crc([ _]?(status|result|check))?$", re.I)),
+    ("Status", re.compile(r"^status$", re.I)),
+    ("Payload Length", re.compile(r"^(payload[ _]?)?length$", re.I)),
+    ("Payload", re.compile(r"^(payload|(iso(chronous)?[ _]?)?data)$", re.I)),
+    ("Channel", re.compile(r"^(rf[ _]?)?channel([ _]?(index|number))?$", re.I)),
+    ("RSSI", re.compile(r"^rssi$", re.I)),
+    ("PHY", re.compile(r"^phy$", re.I)),
+]
+CIS_IN_TEXT = re.compile(r"\bCIS\s*(?:ID)?\s*[:=#]?\s*(0x[0-9A-Fa-f]+|\d+)")
+BIS_IN_TEXT = re.compile(r"\bBIS\s*(?:ID|Index)?\s*[:=#]?\s*(0x[0-9A-Fa-f]+|\d+)")
+SAMPLE_PACKETS = 200    # packets read in full to learn the field names
+LEAF_PROOF = 20         # leaves in a row at one depth before that depth is taken as packet level
 
 
-def read_text(path):
-    """Read a CSV export whatever its encoding (UTF-8 with or without BOM, UTF-16, Korean Windows CP949)."""
-    raw = open(path, 'rb').read()
-    if raw.startswith(b'\xff\xfe') or raw.startswith(b'\xfe\xff'):
-        return raw.decode('utf-16'), 'utf-16'
-    if raw.startswith(b'\xef\xbb\xbf'):
-        return raw[3:].decode('utf-8'), 'utf-8-sig'
-    # UTF-16 without BOM: every other byte is zero in an ASCII-heavy file
-    if len(raw) >= 4 and raw[1:200:2].count(0) > 50:
-        return raw.decode('utf-16-le'), 'utf-16-le'
-    for enc in ('utf-8', 'cp949'):
+def in_wsl():
+    try:
+        return "microsoft" in Path("/proc/version").read_text().lower()
+    except OSError:
+        return False
+
+
+def analyzer_path(path):
+    """The trace path as the analyzer application (Windows) sees it."""
+    if re.match(r"^([A-Za-z]:[\\/]|\\\\)", path):
+        return path
+    # A WSL path to a Windows drive, also when this runs on Windows Python (py.exe from WSL)
+    m = re.match(r"^/mnt/([A-Za-z])(/.*)?$", path)
+    if m:
+        return f"{m.group(1).upper()}:" + (m.group(2) or "/").replace("/", "\\")
+    full = os.path.abspath(path)
+    if in_wsl():
+        return subprocess.run(["wslpath", "-w", full], check=True, capture_output=True,
+                              text=True).stdout.strip()
+    return full
+
+
+def local_path(path):
+    """*path* as this Python sees it: on Windows Python, /mnt/c/... is C:\\..."""
+    return Path(analyzer_path(path) if os.name == "nt" else path)
+
+
+def candidate_hosts(host):
+    if host:
+        return [host]
+    hosts = ["localhost"]
+    if in_wsl():  # the analyzer runs on the Windows side; without mirrored networking it is the gateway
+        route = subprocess.run(["ip", "route"], capture_output=True, text=True).stdout
+        m = re.search(r"default via (\S+)", route)
+        if m:
+            hosts.append(m.group(1))
+    return hosts
+
+
+def connect(host, port):
+    errors = []
+    for h in candidate_hosts(host):
         try:
-            return raw.decode(enc), enc
-        except UnicodeDecodeError:
-            pass
-    return raw.decode('latin-1'), 'latin-1'
+            return ea.connect(h, port)
+        except ea.ConnectionFailed as exc:
+            errors.append(f"{h}:{port} ({exc})")
+    sys.exit("Cannot reach the Ellisys analyzer: " + "; ".join(errors)
+             + "\nIs the analyzer running with the Remote Control plugin enabled?"
+             + (" From WSL, also allow port 12345 in the Windows firewall, or run this script"
+                " with Windows Python." if in_wsl() else ""))
 
 
-def parse_csv(text):
-    """Header row + data rows. Delimiter: whichever of comma, tab, semicolon splits the header most."""
-    lines = [l for l in text.splitlines() if l.strip()]
-    if len(lines) < 2:
-        raise SystemExit('CSV에 헤더와 데이터 행이 필요합니다.')
-    head = lines[0]
-    delim = max([',', '\t', ';'], key=lambda d: (head.count(d), d == ','))
-    rows = list(csv.reader(io.StringIO('\n'.join(lines)), delimiter=delim))
-    headers = [h.strip() for h in rows[0]]
-    n = len(headers)
-    data = []
-    for r in rows[1:]:
-        if len(r) < n - 1:  # same tolerance as the viewer: drop broken lines
-            continue
-        r = [c.strip() for c in r[:n]] + [''] * max(0, n - len(r))
-        data.append(r)
-    if not data:
-        raise SystemExit('읽을 수 있는 데이터 행이 없습니다.')
-    return headers, data, delim
+def pick_overview(analyzer, name):
+    names = analyzer.overviews()
+    if name:
+        if name not in names:
+            sys.exit(f"No overview {name!r}. Available: {', '.join(names)}")
+        return name
+    return next((n for n in names if "low energy" in n.lower()), None)
 
 
-def embed(template, payload_obj, force_gzip=False):
-    raw = json.dumps(payload_obj, ensure_ascii=False, separators=(',', ':'))
-    if force_gzip or len(raw.encode('utf-8')) > GZIP_ABOVE:
-        payload = base64.b64encode(gzip.compress(raw.encode('utf-8'), 6)).decode('ascii')
-        tag = DATA_TAG.format(type='application/octet-stream', enc=' data-encoding="gzip+base64"', payload=payload)
-    else:
-        # Keep the JSON from closing the <script> element or breaking JS parsing
-        safe = raw.replace('<', '\\u003c').replace('\u2028', '\\u2028').replace('\u2029', '\\u2029')
-        tag = DATA_TAG.format(type='application/json', enc='', payload=safe)
-    idx = template.rfind('</body>')
-    if idx < 0:
-        raise SystemExit('ellisys_viewer.html에서 </body>를 찾지 못했습니다.')
-    return template[:idx] + tag + '\n' + template[idx:]
+# -- Details XML -------------------------------------------------------------------------------
+def _value(el):
+    v = el.get("value")
+    if v is None:
+        v = el.get("Value")
+    return (el.text or "").strip() if v is None else v
 
 
-def open_file(path):
-    """Open in the default browser; from WSL, hand the Windows path to the Windows browser."""
-    is_wsl = hasattr(os, 'uname') and 'microsoft' in os.uname().release.lower()
-    if is_wsl:
-        if shutil.which('wslview'):
-            subprocess.run(['wslview', path])
-            return
-        if shutil.which('explorer.exe') and shutil.which('wslpath'):
-            win = subprocess.run(['wslpath', '-w', os.path.abspath(path)], capture_output=True, text=True).stdout.strip()
-            subprocess.run(['explorer.exe', win])  # explorer.exe exits non-zero even on success
-            return
-    webbrowser.open(pathlib.Path(path).resolve().as_uri())  # file:///C:/... on Windows
+def parse_report(xml_text):
+    """{name: value} of an item's Details XML: overview columns first, then the leaf fields.
+
+    A name can occur several times (a field in a header and in the payload); the first wins.
+    """
+    fields = {}
+    if not xml_text:
+        return fields
+    try:
+        root = ET.fromstring(xml_text)
+    except ET.ParseError:
+        return fields
+    columns = [el for el in root.iter() if (el.get("name") or el.get("Name")) == "Overview Columns"]
+    seen = set()
+    for container in columns:
+        for el in container:
+            name = el.get("name") or el.get("Name")
+            if name and name not in fields:
+                fields[name] = _value(el)
+            seen.add(el)
+    for el in root.iter():
+        name = el.get("name") or el.get("Name")
+        if not name or el in seen or name == "Overview Columns" or len(el):
+            continue  # containers group fields; their values are summaries
+        fields.setdefault(name, _value(el))
+    return fields
+
+
+# -- traversal ---------------------------------------------------------------------------------
+def iter_packets(ov, fields, match, limit=None):
+    """Yield (ItemRecord, line text) of the ISO packets: items without children, inside a
+    matching line. The line text is the Item text of the packets' summary lines, which often
+    names the stream ("CIS 0x01 ...") when the packet itself doesn't.
+
+    The overview groups packets under summary lines, how deep depends on the decoder, so this
+    descends into every matching line. Once LEAF_PROOF matching items in a row at one depth have
+    no children, that depth is taken as the packet level and children are no longer counted
+    (counting is one round-trip per item).
+    """
+    leaf_depth = None
+    streak = {}
+    count = 0
+
+    def walk(cursor, depth, line):
+        nonlocal leaf_depth, count
+        for rec in cursor.stream_records(*fields):
+            desc = rec.description or ""
+            if line is None and not match(desc):
+                continue
+            text = desc if line is None else f"{line} {desc}"
+            if leaf_depth is not None and depth >= leaf_depth:
+                children = 0
+            else:
+                child = cursor[rec.position:rec.position + 1][0]
+                child_cursor = child.cursor()
+                children = child_cursor.total
+            if children:
+                streak[depth] = 0
+                yield from walk(child_cursor, depth + 1, text)
+            else:
+                streak[depth] = streak.get(depth, 0) + 1
+                if leaf_depth is None and streak[depth] >= LEAF_PROOF:
+                    leaf_depth = depth
+                yield rec, text
+                count += 1
+            if limit is not None and count >= limit:
+                return
+
+    yield from walk(ov.root.cursor(), 0, None)
+
+
+def narrow_to_iso(ov):
+    """Apply ISO_QUERY; returns False (query cleared) if it matched nothing."""
+    try:
+        ov.set_query(ISO_QUERY)
+    except ea.OperationError:
+        return False
+    if ov.root.cursor().total:
+        return True
+    ov.set_query("")
+    return False
+
+
+def column_plan(names):
+    """(header, {header: source name}) with the viewer's names first, then the raw columns."""
+    taken, plan = set(), {}
+    for canon, rx in CANONICAL:
+        src = next((n for n in names if n not in taken and (n == canon or rx.match(n.strip()))), None)
+        if src is not None:
+            plan[canon] = src
+            taken.add(src)
+    header = ["Timestamp"] + list(plan) + [n for n in names if n not in taken and n != "Timestamp"]
+    return header, plan
+
+
+def to_row(rec, text, header, plan):
+    f = parse_report(rec.xml)
+    row = {"Timestamp": f"{rec.time_ps / 1e9:.6f}" if rec.time_ps is not None else ""}
+    for h in header[1:]:
+        row[h] = f.get(plan.get(h, h), "")
+    # No CIS/BIS ID field: the Item text usually names the stream
+    for canon, rx in (("CIS ID", CIS_IN_TEXT), ("BIS ID", BIS_IN_TEXT)):
+        if canon in row and not row[canon]:
+            m = rx.search(text)
+            if m:
+                row[canon] = m.group(1)
+    return [row[h] for h in header]
+
+
+def extract(analyzer, overview, query=None, sample=SAMPLE_PACKETS, log=print):
+    """(header, rows) of the ISO packets in *overview* of the loaded trace."""
+    with analyzer.overview(overview) as ov:
+        if query:
+            ov.set_query(query)
+            match = lambda d: True
+            log(f"Query: {query}")
+        elif narrow_to_iso(ov):
+            match = lambda d: True
+            log(f"Query: {ISO_QUERY}")
+        else:
+            match = ISO_MATCH.search
+            log("ISO query matched nothing; filtering by item text instead (slower)")
+
+        # 1. Learn the field names from the first packets (full Details)
+        names = []
+        for rec, _ in iter_packets(ov, (ItemField.DESCRIPTION, ItemField.XML), match, limit=sample):
+            for n in parse_report(rec.xml):
+                if n not in names:
+                    names.append(n)
+        if not names:
+            return [], []
+        header, plan = column_plan(names)
+        if "CIS ID" not in plan and "BIS ID" not in plan:
+            header.insert(1, "CIS ID")  # filled from the Item text in to_row
+        log("Columns: " + ", ".join(f"{h}<-{plan[h]}" if plan.get(h, h) != h else h for h in header))
+
+        # 2. All packets, only those fields
+        wanted = ItemField.xml_filtered("Overview Columns", *[n for n in names])
+        rows = []
+        for rec, text in iter_packets(ov, (ItemField.DESCRIPTION, ItemField.TIME, wanted), match):
+            rows.append(to_row(rec, text, header, plan))
+            if len(rows) % 10000 == 0:
+                log(f"  {len(rows)} packets")
+        return header, rows
 
 
 def main(argv=None):
-    try:  # a Korean Windows console (cp949) can't print every character; never fail on that
-        sys.stdout.reconfigure(errors='replace')
-    except (AttributeError, ValueError):
-        pass
-    ap = argparse.ArgumentParser(description='Ellisys CSV export를 데이터가 들어 있는 AirViewer HTML 리포트로 만듭니다.')
-    ap.add_argument('csv', help='Ellisys Overview CSV export (.csv / .tsv / .txt)')
-    ap.add_argument('-o', '--out', help='출력 HTML (기본: <입력 이름>_airviewer.html)')
-    ap.add_argument('--no-open', action='store_true', help='만든 뒤 브라우저로 열지 않음')
-    ap.add_argument('--gzip', action='store_true', help='크기와 상관없이 압축해서 넣기')
-    g = ap.add_argument_group('ISO 파라미터 (생략하면 리포트의 ISO 파라미터 패널/CSV 컬럼/기본값)')
-    for opt, key, typ in (('--bn-c', 'bnC', int), ('--ft-c', 'ftC', int), ('--bn-p', 'bnP', int), ('--ft-p', 'ftP', int),
-                          ('--nse', 'nse', int), ('--iso-ms', 'isoMs', float), ('--sub-ms', 'subMs', float),
-                          ('--tol-us', 'tolUs', float)):
+    p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0],
+                                formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("trace", help=".btt file (a WSL path is converted for the Windows analyzer)")
+    p.add_argument("-o", "--out", help="output .html (default: next to the trace)")
+    p.add_argument("--host", help="analyzer host (default: localhost, then the Windows host from WSL)")
+    p.add_argument("--port", type=int, default=12345)
+    p.add_argument("--overview", help="overview name (default: the Low Energy overview)")
+    p.add_argument("--query", help="Ellisys overview query selecting the packets, instead of the "
+                                   "built-in CIS/BIS filter")
+    p.add_argument("--devices", nargs="+", metavar="ADDR",
+                   help="keep only these devices (AA:BB:CC:DD:EE:FF) — faster on busy captures")
+    p.add_argument("--timeout", type=float, default=600, help="trace load timeout, s")
+    p.add_argument("--explore", action="store_true",
+                   help="print what the trace contains (overviews, item texts, field names, devices)")
+    p.add_argument("--no-open", action="store_true", help="don't open the report in the browser")
+    p.add_argument("--gzip", action="store_true", help="store the data compressed whatever its size")
+    g = p.add_argument_group("ISO parameters (default: the report's ISO panel, trace columns, defaults)")
+    for opt, key, typ in (("--bn-c", "bnC", int), ("--ft-c", "ftC", int), ("--bn-p", "bnP", int),
+                          ("--ft-p", "ftP", int), ("--nse", "nse", int), ("--iso-ms", "isoMs", float),
+                          ("--sub-ms", "subMs", float), ("--tol-us", "tolUs", float)):
         g.add_argument(opt, dest=key, type=typ)
-    g.add_argument('--ts-unit', dest='tsUnit', choices=['auto', 's', 'ms', 'us', 'ns'])
-    a = ap.parse_args(argv)
+    g.add_argument("--ts-unit", dest="tsUnit", choices=["auto", "s", "ms", "us", "ns"])
+    args = p.parse_args(argv)
+    iso = {k: getattr(args, k) for k in ("bnC", "ftC", "bnP", "ftP", "nse", "isoMs", "subMs", "tolUs", "tsUnit")
+           if getattr(args, k) is not None}
 
-    if not os.path.isfile(TEMPLATE):
-        raise SystemExit(f'뷰어 파일이 없습니다: {TEMPLATE} (airviewer.py와 같은 폴더에 두세요)')
-    text, enc = read_text(a.csv)
-    headers, rows, delim = parse_csv(text)
-    iso = {k: getattr(a, k) for k in ('bnC', 'ftC', 'bnP', 'ftP', 'nse', 'isoMs', 'subMs', 'tolUs', 'tsUnit')
-           if getattr(a, k) is not None}
-    payload = {'source': os.path.basename(a.csv), 'created': datetime.datetime.now().isoformat(timespec='seconds'),
-               'headers': headers, 'rows': rows}
-    if iso:
-        payload['iso'] = iso
-    html = embed(open(TEMPLATE, encoding='utf-8').read(), payload, a.gzip)
-    out = a.out or os.path.splitext(a.csv)[0] + '_airviewer.html'
-    with open(out, 'w', encoding='utf-8', newline='\n') as f:
-        f.write(html)
-    print(f'{len(rows):,} rows · {len(headers)} columns · {enc} · 구분자 {delim!r} → {out} ({os.path.getsize(out)/1e6:.1f} MB)')
-    if not a.no_open:
-        open_file(out)
+    trace = analyzer_path(args.trace)
+    out = local_path(args.out) if args.out else local_path(args.trace).with_suffix(".html")
+    with connect(args.host, args.port) as analyzer:
+        print(f"Loading {trace}")
+        analyzer.load(trace, timeout=args.timeout)
+        if args.explore:
+            from ellisys_analysis_automation import discovery
+            text = discovery.explore(analyzer, overview=pick_overview(analyzer, args.overview))
+            print(text)
+            out.with_suffix(".explore.txt").write_text(text, encoding="utf-8")
+            return
+        if args.devices:
+            analyzer.bluetooth.configure_device_filter(ea.DeviceFilterMode.KEEP_ONLY, args.devices)
+        try:
+            overview = pick_overview(analyzer, args.overview)
+            print(f"Overview: {overview or analyzer.active_overview()}")
+            header, rows = extract(analyzer, overview, args.query)
+        finally:
+            if args.devices:
+                analyzer.bluetooth.configure_device_filter(ea.DeviceFilterMode.KEEP_ALL, [])
+    if not rows:
+        sys.exit("No CIS/BIS packets found. Run with --explore to see what the trace contains, "
+                 "then pass --overview / --query.")
+    report.write_html(out, Path(args.trace).name, header, rows, force_gzip=args.gzip, **({"iso": iso} if iso else {}))
+    print(f"{len(rows)} packets -> {out} ({out.stat().st_size / 1e6:.1f} MB)")
+    if not args.no_open:
+        report.open_file(out)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

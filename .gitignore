@@ -1,2 +1,7 @@
 # Claude Code local settings
 .claude/settings.local.json
+.venv/
+__pycache__/
+procedures_sample.html
+# Ellisys Remote Control archive (SDK, plugin binaries, guides): download from Ellisys
+bta_remote_api/

@@ -1,4 +1,4 @@
-// Headless checks for ellisys_viewer.html.
+// Headless checks for template/report_template.html.
 //
 //   npm i -D playwright && npx playwright install chromium
 //   node tests/verify.js
@@ -9,17 +9,16 @@
 //    and returns what really happened to every payload. The analyzer must reach the same
 //    delivered/lost verdict for every payload, for several BN/FT/error-rate settings.
 // 3. Timing: exactly the injected timing anomalies are flagged, nothing else.
-// 4. Edge cases: timestamp formats, BN/FT from CSV columns, no SN/NESN, no Timestamp/Direction.
-// 5. Reports from airviewer.py (needs python3 or python): the HTML with the capture inside
-//    opens by itself and gives the same result as loading the data directly, for UTF-8,
-//    UTF-16, CP949, tab-separated, gzip and with ISO parameters from the command line.
+// 4. Edge cases: timestamp formats, BN/FT from trace columns, no SN/NESN, no Timestamp/Direction.
+// 5. Reports (needs python3 or python): the sample report from procedures.py opens by itself,
+//    as plain JSON and gzip+base64, and both give the same findings and ISO results.
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
 const { execFileSync } = require('child_process');
 const { chromium } = require('playwright');
 
-const FILE = 'file://' + path.resolve(__dirname, '..', 'ellisys_viewer.html');
+const FILE = 'file://' + path.resolve(__dirname, '..', 'template', 'report_template.html');
 let failed = 0;
 const check = (name, ok, info) => { console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${ok || info === undefined ? '' : '  ' + JSON.stringify(info)}`); if (!ok) failed++; };
 
@@ -111,7 +110,7 @@ if (process.env.FUZZ) {
     loadData(h, d);
     return [...linkInfo.values()].map(v => `${v.bn}/${v.ft}/${v.src}`);
   });
-  check('BN/FT read from CSV columns', JSON.stringify(csv) === JSON.stringify(['2/2/CSV', '1/2/CSV', '2/2/CSV', '1/2/CSV']), csv);
+  check('BN/FT read from trace columns', JSON.stringify(csv) === JSON.stringify(['2/2/컬럼', '1/2/컬럼', '2/2/컬럼', '1/2/컬럼']), csv);
 
   const noSn = await page.evaluate(() => {
     const g = generateSampleData(), keep = g.headers.map((h, i) => i).filter(i => !['SN', 'NESN'].includes(g.headers[i]));
@@ -163,50 +162,28 @@ if (process.env.FUZZ) {
 
   check('no page errors', errors.length === 0, errors);
 
-  // 5. airviewer.py reports
+  // 5. Reports with the data inside (report.py), plain and gzip+base64
   const py = ['python3', 'python'].find(c => { try { execFileSync(c, ['--version'], { stdio: 'ignore' }); return true; } catch (e) { return false; } });
-  if (!py) console.log('SKIP  airviewer.py reports (no python3/python)');
+  if (!py) console.log('SKIP  reports (no python3/python)');
   else {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'airviewer-'));
-    const gen = await page.evaluate(() => {
-      const q = v => /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
-      const csv = (h, d, sep = ',') => [h, ...d].map(r => r.map(sep === ',' ? q : x => x).join(sep)).join('\r\n');
-      const counts = () => { const c = {}; issues.forEach(i => c[i.type] = (c[i.type] || 0) + 1); return JSON.stringify(c); };
-      let g = generateSampleData(); const s1 = csv(g.headers, g.data); loadData(g.headers, g.data, {}); const c1 = counts();
-      g = generateSampleData2(); const s2 = csv(g.headers, g.data), s2t = csv(g.headers, g.data, '\t'); loadData(g.headers, g.data, {}); const c2 = counts();
-      g = generateSampleData2(); loadData(g.headers, g.data, g.iso); const c2iso = counts();
-      // A cell that would close the <script> element if it weren't escaped
-      const odd = s1.replace(/\r\n([^\r]*?),([^,\r]*)\r\n/, (m, a) => `\r\n${a},"</script><b>x</b>"\r\n`);
-      return { s1, s2, s2t, odd, c1, c2, c2iso };
-    });
-    const w = (n, buf) => { const f = path.join(dir, n); fs.writeFileSync(f, buf); return f; };
-    const cases = [
-      ['UTF-8', w('a.csv', gen.s1), [], gen.c1],
-      ['UTF-16 (BOM)', w('b.csv', Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(gen.s1, 'utf16le')])), [], gen.c1],
-      ['tab-separated', w('c.tsv', gen.s2t), [], gen.c2],
-      ['gzip', w('d.csv', gen.s2), ['--gzip'], gen.c2],
-      ['ISO from command line', w('e.csv', gen.s2), ['--bn-c', '2', '--ft-c', '2', '--bn-p', '1', '--ft-p', '2'], gen.c2iso],
-      ['</script> in a cell', w('f.csv', gen.odd), [], null],
-    ];
-    // CP949 (Korean Windows) with a Korean header, written by Python itself
-    const cp = path.join(dir, 'g.csv');
-    execFileSync(py, ['-c', 'import sys;t=open(sys.argv[1],encoding="utf-8").read();open(sys.argv[2],"wb").write(t.replace("Item","번호",1).encode("cp949"))', cases[0][1], cp]);
-    cases.push(['CP949 + Korean header', cp, [], gen.c1]);
-    for (const [name, file, args, want] of cases) {
-      const out = file + '.html';
-      execFileSync(py, [path.resolve(__dirname, '..', 'airviewer.py'), file, '--no-open', '-o', out, ...args], { stdio: 'ignore' });
+    const results = {};
+    for (const [name, args] of [['plain', []], ['gzip', ['--gzip']]]) {
+      const out = path.join(dir, name + '.html');
+      execFileSync(py, [path.resolve(__dirname, '..', 'procedures.py'), '--sample', '-o', out, ...args], { stdio: 'ignore' });
       const p = await browser.newPage(); const errs = [];
       p.on('pageerror', e => errs.push(e.message)); p.on('dialog', d => { errs.push('dialog'); d.dismiss(); });
       await p.goto('file://' + out);
       let r;
       try {
-        await p.waitForFunction(() => document.getElementById('mainView').classList.contains('active'), null, { timeout: 15000 });
-        r = await p.evaluate(() => { const c = {}; issues.forEach(i => c[i.type] = (c[i.type] || 0) + 1); return { counts: JSON.stringify(c), rows: rawData.length, odd: rawData.some(row => row.includes('</script><b>x</b>')) }; });
+        await p.waitForFunction(() => document.getElementById('findPanel').classList.contains('active'), null, { timeout: 15000 });
+        r = await p.evaluate(() => ({ findings: fd.findings.map(f => f.kind + '@' + f.t.toFixed(6)).join(','), iso: rawData.length, issues: issues.length }));
       } catch (e) { r = { error: e.message }; }
-      const ok = !errs.length && !r.error && (want ? r.counts === want : r.odd);
-      check(`report: ${name}`, ok, { ...r, errs });
+      results[name] = r;
+      check(`report: ${name} opens`, !errs.length && !r.error && r.iso > 0 && r.findings.length > 0, { ...r, errs });
       await p.close();
     }
+    check('report: gzip gives the same result', JSON.stringify(results.plain) === JSON.stringify(results.gzip));
     fs.rmSync(dir, { recursive: true, force: true });
   }
 
