@@ -1,4 +1,4 @@
-// Headless checks for ellisys_viewer.html.
+// Headless checks for template/report_template.html.
 //
 //   npm i -D playwright && npx playwright install chromium
 //   node tests/verify.js
@@ -9,11 +9,11 @@
 //    and returns what really happened to every payload. The analyzer must reach the same
 //    delivered/lost verdict for every payload, for several BN/FT/error-rate settings.
 // 3. Timing: exactly the injected timing anomalies are flagged, nothing else.
-// 4. Edge cases: timestamp formats, BN/FT from CSV columns, no SN/NESN, no Timestamp/Direction.
+// 4. Edge cases: timestamp formats, BN/FT from trace columns, no SN/NESN, no Timestamp/Direction.
 const path = require('path');
 const { chromium } = require('playwright');
 
-const FILE = 'file://' + path.resolve(__dirname, '..', 'ellisys_viewer.html');
+const FILE = 'file://' + path.resolve(__dirname, '..', 'template', 'report_template.html');
 let failed = 0;
 const check = (name, ok, info) => { console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${ok || info === undefined ? '' : '  ' + JSON.stringify(info)}`); if (!ok) failed++; };
 
@@ -105,7 +105,7 @@ if (process.env.FUZZ) {
     loadData(h, d);
     return [...linkInfo.values()].map(v => `${v.bn}/${v.ft}/${v.src}`);
   });
-  check('BN/FT read from CSV columns', JSON.stringify(csv) === JSON.stringify(['2/2/CSV', '1/2/CSV', '2/2/CSV', '1/2/CSV']), csv);
+  check('BN/FT read from trace columns', JSON.stringify(csv) === JSON.stringify(['2/2/컬럼', '1/2/컬럼', '2/2/컬럼', '1/2/컬럼']), csv);
 
   const noSn = await page.evaluate(() => {
     const g = generateSampleData(), keep = g.headers.map((h, i) => i).filter(i => !['SN', 'NESN'].includes(g.headers[i]));

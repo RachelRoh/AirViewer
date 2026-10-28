@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Ellisys LE Audio Viewer</title>
+<title>Ellisys Air Log Report</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #0a0e17; color: #c9d1d9; font-size: 13px; }
@@ -19,11 +19,118 @@
   .btn-primary:hover { background: #388bfd; }
   .btn-sm { padding: 3px 10px; font-size: 11px; }
 
-  .dropzone { margin: 20px; padding: 60px; border: 2px dashed #30363d; border-radius: 12px; text-align: center; transition: all 0.2s; }
-  .dropzone.drag-over { border-color: #58a6ff; background: rgba(88,166,255,0.05); }
-  .dropzone h2 { color: #58a6ff; margin-bottom: 8px; font-size: 18px; }
-  .dropzone p { color: #8b949e; margin-bottom: 16px; }
-  .dropzone.hidden { display: none; }
+  .landing { margin: 20px; padding: 60px; border: 1px solid #30363d; border-radius: 12px; text-align: center; }
+  .landing h2 { color: #58a6ff; margin-bottom: 8px; font-size: 18px; }
+  .landing p { color: #8b949e; margin-bottom: 16px; }
+  .landing code { color: #c9d1d9; }
+  .landing.hidden { display: none; }
+
+  /* Findings tab (prototype): problem points, and what happened around a point in time */
+  .proto-tag { font-size: 11px; color: #d29922; border: 1px solid rgba(210,153,34,0.5); border-radius: 10px; padding: 1px 8px; cursor: help; }
+  .sm-top { flex: none; }
+  .sm-links { background: #161b22; border: 1px solid #30363d; width: 100%; font-size: 12px; }
+  .sm-links td { padding: 6px 10px; border-bottom: 1px solid #21262d; color: #c9d1d9; }
+  .sm-links tr { cursor: pointer; }
+  .sm-links tr:hover td, .sm-links tr.sel td { background: #1c2128; }
+  .sm-links .sm-name { font-family: monospace; font-weight: 600; white-space: nowrap; width: 220px; }
+  .sm-ic { width: 18px; text-align: center; font-weight: 700; }
+  .sm-dim { color: #8b949e; font-weight: normal; }
+  .sm-cols { display: grid; grid-template-columns: minmax(380px, 34%) 1fr; gap: 16px; flex: 1; min-height: 0; }
+  .sm-list, .sm-detail { overflow: auto; min-height: 0; background: #0d1117; }
+  .sm-detail { border: 1px solid #30363d; border-radius: 6px; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+  .sm-head { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: #c9d1d9; padding: 2px 2px 6px; }
+  .sm-head .sm-go { margin-left: auto; font-size: 12px; font-weight: normal; color: #8b949e; }
+  .sm-head input { background: #161b22; border: 1px solid #30363d; color: #c9d1d9; padding: 3px 6px; border-radius: 4px; width: 80px; font-family: monospace; }
+  .sm-x { cursor: pointer; color: #58a6ff; }
+  .sm-row { display: flex; gap: 8px; align-items: baseline; padding: 5px 8px; font-size: 12px; cursor: pointer; border-radius: 4px; white-space: nowrap; overflow: hidden; }
+  .sm-row:hover { background: #161b22; }
+  .sm-row.sel { background: rgba(88,166,255,0.15); }
+  .sm-row .sm-t { font-family: monospace; color: #8b949e; width: 56px; text-align: right; flex: none; }
+  .sm-row .sm-l { font-family: monospace; color: #8b949e; width: 140px; flex: none; overflow: hidden; text-overflow: ellipsis; }
+  .sm-row .sm-what { overflow: hidden; text-overflow: ellipsis; color: #c9d1d9; }
+  .sm-row .sm-k { width: 84px; flex: none; font-weight: 600; }
+  .sm-rec { display: block; font-size: 12px; color: #8b949e; padding: 2px 8px 6px; cursor: pointer; }
+  .sm-detail { font-size: 13px; }
+  .sm-dhead { font-size: 15px !important; }
+  .sm-ex { background: #161b22; border: 1px solid #30363d; border-radius: 6px; padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; font-size: 14px; color: #c9d1d9; line-height: 1.5; }
+  .sm-exk { display: inline-block; width: 44px; font-weight: 700; color: #8b949e; }
+  .sm-ex .tbd { color: #d29922; }
+  .sm-ev { background: #161b22; border: 1px solid #30363d; width: 100%; font-size: 13px; }
+  .sm-ev th { cursor: default; font-size: 12px; }
+  .sm-ev td { padding: 6px 10px; border-bottom: 1px solid #21262d; color: #c9d1d9; }
+  .sm-ev td.mono { font-family: monospace; }
+  .sm-ev tr.bad td { background: rgba(248,81,73,0.15); color: #ffa198; }
+  .sm-ev tr.warn td { background: rgba(219,109,40,0.10); }
+  .sm-ev tr.mark td { background: rgba(88,166,255,0.10); }
+  .sm-empty { color: #8b949e; font-size: 13px; margin: auto; text-align: center; line-height: 1.8; }
+  .sm-detail > * { flex-shrink: 0; }
+  .sm-detail { overflow: hidden !important; }
+  .sm-evd { font-size: 12px; color: #8b949e; }
+  .sm-evd summary { cursor: pointer; padding: 2px 0; }
+  .sm-evd-body { display: flex; flex-direction: column; gap: 8px; padding: 6px 0; max-height: 45vh; overflow: auto; }
+  .lg-bar { display: flex; gap: 12px; align-items: center; font-size: 13px; color: #c9d1d9; }
+  .lg-bar label { cursor: pointer; font-size: 12px; }
+  .lg-hint { margin-left: auto; font-size: 11px; }
+  .lgt { width: 100%; table-layout: auto; }
+  .lgt th { cursor: default; padding: 6px 6px; }
+  .lgt th.ind { width: 4px; min-width: 4px; padding: 0; }
+  .lgt td { height: 26px; padding: 0 6px; line-height: 25px; box-sizing: border-box; }
+  .lgt td:last-child { white-space: nowrap; max-width: 230px; overflow: hidden; text-overflow: ellipsis; }
+  .lgt td.pk { max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
+  .lgt td.lk { max-width: 130px; overflow: hidden; text-overflow: ellipsis; }
+  .lgt tr.lg-pad td, .lgt tr.lg-pad { padding: 0; border: none; background: none; }
+  .sm-detail > .lg { flex: 1 1 0; min-height: 240px; overflow-y: auto; overflow-x: auto; position: relative; background: #0d1117; border: 1px solid #21262d; border-radius: 4px; }
+  .sm-dhead { font-size: 13px; color: #c9d1d9; display: flex; flex-direction: column; gap: 3px; }
+  .sm-dhead .btn { align-self: flex-start; }
+  .sm-sub { font-size: 12px; color: #8b949e; }
+  .sm-actions { display: flex; gap: 8px; }
+  .sm-views { display: flex; gap: 4px; }
+  .sm-views .btn.on { border-color: #58a6ff; color: #58a6ff; background: rgba(88,166,255,0.10); }
+  .sm-detail > .sm-view { flex: 1 1 0; min-height: 260px; display: flex; flex-direction: column; overflow: hidden; border: 1px solid #21262d; border-radius: 4px; }
+  .sm-view > .stream-bar { padding: 6px 10px; }
+  .sm-view > .timeline-panel.active, .sm-view > .issues-panel.active { flex: 1; min-height: 0; }
+  .sm-wins { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; font-size: 13px; color: #c9d1d9; }
+  .sm-wins .btn.on { border-color: #58a6ff; color: #58a6ff; }
+  .sm-wins b { margin-right: 8px; }
+  .fd-bar { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 12px; color: #8b949e; }
+  .fd-bar label { margin-left: 10px; }
+  .fd-bar label:first-child { margin-left: 0; }
+  .fd-bar input { background: #161b22; border: 1px solid #30363d; color: #c9d1d9; padding: 4px 8px; border-radius: 4px; font-size: 12px; width: 110px; font-family: monospace; }
+  .fd-bar .btn.on { border-color: #58a6ff; color: #58a6ff; }
+  .fd-range { margin-left: auto; font-family: monospace; }
+  .fd-cols { display: grid; grid-template-columns: 380px 1fr; gap: 16px; min-height: 0; flex: 1; }
+  .fd-left, .fd-right { overflow: auto; min-height: 0; display: flex; flex-direction: column; gap: 8px; }
+  .fd-chips { display: flex; gap: 4px; flex-wrap: wrap; }
+  .fd-chip { border: 1px solid; border-radius: 10px; padding: 1px 8px; font-size: 11px; cursor: pointer; opacity: 0.45; }
+  .fd-chip.on { opacity: 1; }
+  .fd-item { background: #161b22; border: 1px solid #30363d; border-left: 3px solid; border-radius: 4px; padding: 6px 10px; cursor: pointer; font-size: 12px; display: flex; flex-direction: column; gap: 2px; }
+  .fd-item:hover { background: #1c2128; }
+  .fd-item.sel { border-color: #58a6ff; }
+  .fd-item .fd-top { display: flex; gap: 8px; align-items: baseline; }
+  .fd-item .fd-kind { font-size: 11px; font-weight: 600; min-width: 74px; }
+  .fd-item .fd-t { font-family: monospace; color: #8b949e; }
+  .fd-item .fd-title { color: #c9d1d9; font-weight: 600; }
+  .fd-item .fd-sub { color: #8b949e; }
+  .fd-lanes { background: #0d1117; border: 1px solid #30363d; border-radius: 6px; }
+  .fd-lanes text { font-size: 11px; fill: #8b949e; font-family: monospace; }
+  .fd-lanes .fd-bar-p { cursor: pointer; }
+  .fd-ev { background: #161b22; border: 1px solid #30363d; width: 100%; }
+  .fd-ev th { cursor: default; }
+  .fd-ev td { padding: 4px 10px; border-bottom: 1px solid #21262d; color: #c9d1d9; white-space: nowrap; }
+  .fd-ev td.mono { font-family: monospace; color: #8b949e; }
+  .fd-ev tr.corrupt td { color: #f85149; }
+  .fd-ev tr.verdict td { background: #11161d; }
+  .fd-ev tr.ladder-row td { white-space: normal; background: #0d1117; }
+  .fd-ev .fd-proc { cursor: pointer; text-decoration: underline dotted; }
+  .proc-badge { border: 1px solid; border-radius: 10px; padding: 0 7px; font-size: 11px; }
+  .proc-body { padding: 4px 0 8px; display: flex; gap: 24px; flex-wrap: wrap; align-items: flex-start; }
+  .proc-meta { font-size: 12px; color: #8b949e; display: flex; flex-direction: column; gap: 4px; max-width: 420px; }
+  .proc-meta b { color: #c9d1d9; font-weight: 600; }
+  .proc-meta .tbd { color: #d29922; }
+  .ladder text { font-size: 11px; fill: #8b949e; font-family: monospace; }
+  .ladder .ld-head { fill: #c9d1d9; font-weight: 600; text-anchor: middle; font-family: inherit; font-size: 12px; }
+  .ladder .ld-label { text-anchor: middle; fill: #c9d1d9; }
+  .ladder .ld-life { stroke: #30363d; stroke-width: 2; }
 
   .main { display: none; flex-direction: column; height: calc(100vh - 49px); }
   .main.active { display: flex; }
@@ -212,31 +319,29 @@
 <body>
 
 <div class="header">
-  <h1>Ellisys LE Audio Viewer</h1>
-  <span class="subtitle">CIS / BIS Packet Analyzer</span>
+  <h1>Ellisys Air Log Report</h1>
+  <span class="subtitle">Bluetooth air log</span>
+  <span class="proto-tag" id="protoTag" style="display:none;" title="판정 규칙의 스펙 근거와 시간 한도 같은 수치는 아직 Core spec으로 확인하지 않았습니다. 절차를 고르면 미확인 항목이 표시됩니다.">프로토타입 · 스펙 근거 미확인</span>
   <div class="header-actions">
     <button class="btn" id="btnSample">Generate Sample Data</button>
     <button class="btn" id="btnSampleFt" title="FT=2 · BN=2 · 타이밍 이상이 들어간 샘플">Sample: FT/BN · Timing</button>
-    <button class="btn" id="btnColumns" style="display:none;" title="CSV 컬럼과 값 해석 확인·수정">Columns</button>
-    <button class="btn" id="btnLoad" style="display:none;">Load Another File</button>
-    <button class="btn" id="btnExport" style="display:none;">Export Report</button>
+    <button class="btn" id="btnColumns" style="display:none;" title="컬럼과 값 해석 확인·수정">Columns</button>
   </div>
 </div>
 
-<div class="dropzone" id="dropzone">
-  <h2>Drop CSV File Here</h2>
-  <p>Drag & drop an Ellisys CSV export, or click to browse</p>
-  <input type="file" id="fileInput" accept=".csv,.tsv,.txt" style="display:none;">
-  <button class="btn btn-primary" onclick="document.getElementById('fileInput').click()">Browse Files</button>
-  <div style="margin-top: 20px; display: flex; gap: 8px; justify-content: center;"><button class="btn" id="btnSample2">Or try with sample LE Audio data</button><button class="btn" id="btnSampleFt2">Sample: FT=2 · BN=2 · Timing</button></div>
+<div class="landing" id="landing">
+  <h2>No trace loaded</h2>
+  <p>Reports are built from a .btt with <code>airviewer.py</code>. Or try the sample data:</p>
+  <div style="display: flex; gap: 8px; justify-content: center;"><button class="btn" id="btnSample2">Sample LE Audio data</button><button class="btn" id="btnSampleFt2">Sample: FT=2 · BN=2 · Timing</button></div>
 </div>
 
 <div class="main" id="mainView">
   <div class="stream-bar" id="streamBar"></div>
   <div class="tabs">
-    <div class="tab active" data-tab="issues">Issues</div>
-    <div class="tab" data-tab="table">Packet Table</div>
-    <div class="tab" data-tab="timeline">Timeline</div>
+    <div class="tab" data-tab="findings" style="display:none;">요약</div>
+    <div class="tab active" data-tab="issues">LE Audio · Issues</div>
+    <div class="tab" data-tab="table">LE Audio · Packets</div>
+    <div class="tab" data-tab="timeline">LE Audio · ISO Grid</div>
   </div>
   <div class="filter-bar" id="filterBar">
     <div class="error-only-toggle"><input type="checkbox" id="filterErrorOnly"><label for="filterErrorOnly" style="color:#f85149;">Errors only</label></div>
@@ -247,6 +352,7 @@
   </div>
   <div class="pane-row">
     <div class="issues-panel active" id="issuesPanel"></div>
+    <div class="issues-panel" id="findPanel"></div>
     <div class="table-container" id="tablePanel" style="display:none;">
       <table><thead id="tableHead"></thead><tbody id="tableBody"></tbody></table>
     </div>
@@ -427,21 +533,6 @@ function isErrorValue(v, kind) {
 }
 
 // ============================================================
-//  CSV PARSING
-// ============================================================
-function parseCSV(text) {
-  const lines = text.split(/\r?\n/).filter(l=>l.trim());
-  if (lines.length < 2) return {headers:[],data:[]};
-  let delim = ',';
-  if (lines[0].split('\t').length > lines[0].split(',').length) delim='\t';
-  else if (lines[0].split(';').length > lines[0].split(',').length) delim=';';
-  const parse = l => { const r=[]; let c='',q=false; for(let i=0;i<l.length;i++){const ch=l[i]; if(ch==='"')q=!q; else if(ch===delim&&!q){r.push(c.trim());c='';} else c+=ch;} r.push(c.trim()); return r; };
-  const hdrs=parse(lines[0]), data=[];
-  for(let i=1;i<lines.length;i++){const r=parse(lines[i]); if(r.length>=hdrs.length-1){while(r.length<hdrs.length)r.push(''); data.push(r);}}
-  return {headers:hdrs,data};
-}
-
-// ============================================================
 //  ERROR DETECTION
 // ============================================================
 function analyzeErrors(data,f) {
@@ -486,7 +577,7 @@ let issues=[], issueChecks={}, issueSel=null, pktInfo=new Map();
 //  ISO PARAMETERS
 //  BN/FT per direction decide how SDUs map to payloads and how long a payload may be
 //  retried; ISO/Sub interval, the timestamp unit and the tolerance drive the timing
-//  checks. Each value comes from the Issues-tab panel, else a CSV column (most common
+//  checks. Each value comes from the Issues-tab panel, else a trace column (most common
 //  value per stream+direction), else a default (BN/FT) or an estimate from timestamps.
 // ============================================================
 let isoUser={};  // bnC, ftC, bnP, ftP, nse, isoMs, subMs, tsUnit, tolUs — null/absent = not set
@@ -507,7 +598,7 @@ function linkParams(sid,isC){
   const f=detectedFields,dc=getDirCol(),keep=dc!==undefined?(r=>isCtoPDir(r[dc])===isC):null;
   const pick=(k,col)=>{
     if(isoUser[k]!==undefined&&isoUser[k]!==null)return[isoUser[k],'입력'];
-    if(col!==undefined){const v=colMode(sid,col,keep);if(v!==null&&v>=1)return[v,'CSV'];}
+    if(col!==undefined){const v=colMode(sid,col,keep);if(v!==null&&v>=1)return[v,'컬럼'];}
     return[ISO_DEFAULTS[k],'기본값'];
   };
   const[bn,sb]=pick(isC?'bnC':'bnP',f.bn),[ft,sf]=pick(isC?'ftC':'ftP',f.ft);
@@ -824,7 +915,7 @@ function analyzeTiming(isCis,seBase,num,add){
 
 // ============================================================
 //  DERIVED COLUMNS (Packet Table)
-//  Appended after the CSV columns so sorting, column filters, search and export
+//  Appended after the trace columns so sorting, column filters and search
 //  treat them like any other column. Columns without any value are left out.
 // ============================================================
 const DERIVED_DESC={Pair:'C→P 패킷에 P→C 응답이 있었는지',Ack:'상대 응답의 NESN 기준 ACK / NACK',Retx:'같은 payload의 몇 번째 재전송인지 (FT>1이면 다음 이벤트로 넘어간 재전송은 "이월")','Payload State':'Data / Null PDU / 이상 (Empty · Len≠ · Zero)',Issues:'Issues 탭 검사 결과'};
@@ -866,17 +957,21 @@ function renderIssues(){
   const typeLabel=Object.fromEntries(ISSUE_TYPES.map(t=>[t.key,t.label]));
 
   let h=isoPanelHtml()+'<div class="issue-cards">';
+  // Checks with nothing to report are listed in one line under the cards
+  const quiet=[];
   ISSUE_TYPES.forEach(t=>{
     const ck=issueChecks[t.key],n=vis.filter(i=>i.type===t.key).length;
+    if(!ck.on||n===0){quiet.push(t.label+(ck.on?' 0':' —'));return;}
     const sel=issueSel&&issueSel.type===t.key&&issueSel.si===undefined;
     h+=`<div class="issue-card ${!ck.on?'off':n>0?'bad':'ok'}${sel?' sel':''}" data-type="${t.key}"><div class="label">${t.label}</div><div class="value">${ck.on?n:'—'}</div><div class="sub">${escHtml(ck.on?t.desc:ck.why)}</div></div>`;
   });
   h+='</div>';
+  if(quiet.length)h+=`<div class="chart-sub">문제 없음 또는 검사 안 함: ${escHtml(quiet.join(' · '))}</div>`;
 
   // Matrix: stream × direction rows, one column per enabled check
   const dirs=dc!==undefined?[...new Set(rawData.map(r=>r[dc]))].sort((a,b)=>isCtoPDir(b)-isCtoPDir(a)):[''];
   const sids=sc!==null?streamIds.filter(s=>activeStreams.has(s)):[null];
-  const onTypes=ISSUE_TYPES.filter(t=>issueChecks[t.key].on);
+  const onTypes=ISSUE_TYPES.filter(t=>issueChecks[t.key].on&&vis.some(i=>i.type===t.key));
   const anyCarry=[...deliv.values()].some(g=>g.ft>1);
   h+=`<table class="issue-matrix"><thead><tr><th>Stream</th><th>Dir</th><th class="sum" title="BN: 이벤트당 payload 수 · FT: 한 payload를 보낼 수 있는 이벤트 수 (위 ISO 파라미터)">BN/FT</th><th class="sum" title="전달된 payload 비율 = (첫 전송 + 재전송 + 다음 이벤트에서 성공) / (전달 + 손실). BN>1이면 이벤트당 BN개를 셈">전달률</th>${anyCarry?'<th class="sum" title="FT>1이라 다음 이벤트로 넘어가 전달된 payload 수">FT 이월</th>':''}<th class="sum" title="연속으로 손실된 payload 수의 최댓값 — 길수록 PLC로 숨기기 어려움">최대 연속 손실</th>${onTypes.map(t=>`<th>${t.label}</th>`).join('')}</tr></thead><tbody>`;
   sids.forEach((sid,si)=>dirs.forEach((d,di)=>{
@@ -963,7 +1058,7 @@ function isoPanelHtml(){
   h+=`<table class="iso-est"><thead><tr><th>Stream</th><th>C→P BN/FT</th><th>P→C BN/FT</th><th>ISO 간격 추정</th><th>Sub 간격 추정</th></tr></thead><tbody>`;
   est.forEach(e=>{h+=`<tr><td style="color:${getColor(e.sid,null).fg};">${escHtml(e.sid===null?'All':streamLabel(e.sid))}</td><td title="${escHtml(e.c?e.c.src:'')}">${fmt(e.c)} <span class="cell-muted">${escHtml(e.c?e.c.src:'')}</span></td><td title="${escHtml(e.p?e.p.src:'')}">${fmt(e.p)} <span class="cell-muted">${escHtml(e.p?e.p.src:'')}</span></td><td>${e.t?ms(e.t.isoEst):'—'}</td><td>${e.t?ms(e.t.subEst):'—'}</td></tr>`;});
   h+=`</tbody></table>`;
-  h+=`<div class="iso-note">BN/FT를 비우면 CSV의 BN·FT 컬럼 값을, 없으면 1을 씁니다 (FT=1이면 이전과 같은 이벤트 단위 판정). FT는 LL_CIS_REQ나 LE CIS Established 이벤트에서 확인할 수 있습니다. NSE는 BN>1일 때 payload별 Flush 시점을 정하는 데 쓰며, 비우면 캡처에서 본 가장 큰 Subevent 번호를 씁니다. ISO/Sub 간격을 비우면 타임스탬프에서 추정합니다. BN/FT/NSE/간격은 캡처마다 다르므로 저장하지 않고, Timestamp 단위와 허용 오차만 저장합니다.${tsAutoUnit?` 단위 없는 Timestamp를 <b style="color:#3fb950">${tsAutoUnit}</b> 단위로 판단했습니다.`:''}${odd?' <b>추정 ISO 간격이 5 ms~4 s 범위를 벗어났습니다. Timestamp 단위를 확인하세요.</b>':''}</div>`;
+  h+=`<div class="iso-note">BN/FT를 비우면 트레이스의 BN·FT 컬럼 값을, 없으면 1을 씁니다 (FT=1이면 이전과 같은 이벤트 단위 판정). FT는 LL_CIS_REQ나 LE CIS Established 이벤트에서 확인할 수 있습니다. NSE는 BN>1일 때 payload별 Flush 시점을 정하는 데 쓰며, 비우면 캡처에서 본 가장 큰 Subevent 번호를 씁니다. ISO/Sub 간격을 비우면 타임스탬프에서 추정합니다. BN/FT/NSE/간격은 캡처마다 다르므로 저장하지 않고, Timestamp 단위와 허용 오차만 저장합니다.${tsAutoUnit?` 단위 없는 Timestamp를 <b style="color:#3fb950">${tsAutoUnit}</b> 단위로 판단했습니다.`:''}${odd?' <b>추정 ISO 간격이 5 ms~4 s 범위를 벗어났습니다. Timestamp 단위를 확인하세요.</b>':''}</div>`;
   h+=`</div></details>`;
   return h;
 }
@@ -2068,6 +2163,388 @@ function switchTab(name){
   if(name==='issues')renderIssues();
   document.getElementById('timelinePanel').classList.toggle('active',name==='timeline');
   if(name==='timeline')requestAnimationFrame(drawTimeline);
+  document.getElementById('findPanel').classList.toggle('active',name==='findings');
+  if(name==='findings')renderFindings();
+  if(name!=='findings')document.getElementById('streamBar').style.display=rawData.length?'':'none';
+}
+
+// ============================================================
+//  FINDINGS (prototype)
+//  Built around time. procedures.py embeds the problem points it found (findings), the
+//  notable packets and the procedure results. Left: the findings; picking one (or typing a
+//  time) shows the window around it: a lane per link (procedures as bars, corrupted packets
+//  as red ticks) and the packets in time order. Procedures open as ladder diagrams.
+// ============================================================
+const FIND_KIND={corrupt:['깨짐','#f85149'],absent:['안 옴','#f85149'],late:['늦게 옴','#db6d28'],
+  not_applied:['적용 안 됨','#f85149'],lost:['손실','#f85149'],timing:['타이밍','#db6d28'],payload:['Payload 이상','#58a6ff'],
+  rejected:['거절','#d29922'],capture:['캡처 누락 의심','#a371f7'],unknown:['판정 불가','#8b949e'],recovered:['깨짐 (복구됨)','#768390']};
+const PROC_STATUS={pass:['성공','#3fb950'],fail:['적용 안 됨','#f85149'],timeout:['안 옴','#f85149'],late:['늦게 옴','#db6d28'],
+  rejected:['거절','#d29922'],missing:['캡처 누락 의심','#a371f7'],unknown:['판정 불가','#8b949e']};
+let fd={findings:[],events:[],procs:[],span:[0,0],links:[],stepOf:new Map(),isoNotes:new Map(),log:[],logKey:null};
+let fdView={t:0,sel:null,link:null,rec:false,ladder:false,evOpen:false,hideEmpty:true,hl:new Set(),view:'log'};
+const fdDir=s=>s==='C'?'C→P':'P→C';
+const fdMs=s=>Math.abs(s)>=1?`${s.toFixed(3)} s`:`${(s*1e3).toFixed(3)} ms`;
+function procBadge(s){const[l,c]=PROC_STATUS[s];return `<span class="proc-badge" style="color:${c};border-color:${c}">${l}</span>`;}
+// Errors in time order. Errors recovered by retransmission are common on a radio link and many,
+// so they join the list only when asked for.
+function fdFocus(i){fdView.sel=i;fdView.ladder=false;fdView.t=fd.findings[i].t;fdView.hl=fdHighlight(fd.findings[i]);}
+function renderFindings(){
+  smPark();
+  const list=document.querySelector('#findPanel .sm-list'),keep=list?list.scrollTop:0;
+  const h=`<div class="sm-top">${smLinks()}</div><div class="sm-cols"><div class="sm-list">${smList()}</div><div class="sm-detail">${smDetail()}</div></div>`;
+  document.getElementById('findPanel').innerHTML=h;
+  document.querySelector('#findPanel .sm-list').scrollTop=keep;
+  const box=document.getElementById('fdLog');
+  // draw once so the spacers give the log its full height, then scroll and draw what is in view
+  if(box){box.addEventListener('scroll',logPaint,{passive:true});logPaint();logScrollTo(fdView.t);logPaint();}
+  else smShowPanel();
+}
+// One line per link: how it went overall
+function smLinks(){
+  const deliv=rawData.length?computeDelivery():[];
+  let h=`<table class="sm-links"><tbody>`;
+  fd.links.forEach(link=>{
+    const n=fd.findings.filter(f=>f.link===link&&f.kind!=='recovered').length;
+    const parts=[];
+    const ps=fd.procs.filter(p=>p.link===link);
+    if(ps.length)parts.push(`절차 ${ps.length}건 · 성공 ${ps.filter(p=>p.status==='pass').length}`);
+    deliv.filter(g=>streamLabel(g.sid)===link).forEach(g=>{
+      let ok=0,lost=0,run=0,mx=0;g.list.forEach(e=>{const w=e.n||1;if(e.st==='lost'){lost+=w;run+=w;mx=Math.max(mx,run);}else{if(e.st)ok+=w;run=0;}});
+      if(ok+lost)parts.push(`${dirShort(g.dir)} 전달률 <b style="color:${lost?'#f85149':'#3fb950'}">${(100*ok/(ok+lost)).toFixed(2)}%</b>${lost?` (손실 ${lost}, 최대 연속 ${mx})`:''}`);
+    });
+    const crc=fd.events.filter(e=>e.link===link&&e.corrupt).length;
+    if(crc)parts.push(`CRC 에러 ${crc}개`);
+    h+=`<tr class="sm-link${fdView.link===link?' sel':''}" data-link="${escHtml(link)}"><td class="sm-ic" style="color:${n?'#f85149':'#3fb950'}">${n?'✗':'✓'}</td><td class="sm-name">${escHtml(link)}</td><td>${n?`<span style="color:#f85149">에러 ${n}</span>`:'<span class="sm-dim">에러 없음</span>'}</td><td class="sm-dim">${parts.join(' · ')}</td></tr>`;
+  });
+  return h+'</tbody></table>';
+}
+function smList(){
+  const list=fd.findings.map((f,i)=>[f,i]).filter(([f])=>(fdView.rec||f.kind!=='recovered')&&(!fdView.link||f.link===fdView.link));
+  const nRec=fd.findings.filter(f=>f.kind==='recovered'&&(!fdView.link||f.link===fdView.link)).length;
+  let h=`<div class="sm-head">에러 <span class="sm-dim">${list.length}건 · 시간순${fdView.link?` · ${escHtml(fdView.link)} <span class="sm-x" data-link="">✕</span>`:''}</span><span class="sm-go">시각 <input type="text" id="fdTime" placeholder="예: 5.29"> s</span></div>`;
+  if(nRec)h+=`<label class="sm-rec"><input type="checkbox" data-rec="1"${fdView.rec?' checked':''}> 재전송으로 복구된 에러도 보기 (${nRec}건)</label>`;
+  if(!list.length)h+='<div class="sm-dim" style="padding:8px">없음</div>';
+  list.forEach(([f,i])=>{
+    const[label,kc]=FIND_KIND[f.kind];
+    h+=`<div class="sm-row${fdView.sel===i?' sel':''}" data-find="${i}" title="${escHtml(f.title+' — '+f.detail)}"><span class="sm-t">${f.t.toFixed(3)}</span><span class="sm-l">${escHtml(f.link)}</span><span class="sm-k" style="color:${kc}">${label}</span><span class="sm-what">${escHtml(f.title)} <span class="sm-dim">${escHtml(f.detail)}</span></span></div>`;
+  });
+  return h;
+}
+const ISO_EXPECT={crcLost:'payload가 Flush 시점(FT) 안에 전달돼야 함',crcRecovered:'CRC OK',nack:'상대가 받아서 ACK (NESN이 넘어감)',
+  noResp:'C→P 송신마다 P→C 응답이 와야 함',ecSkip:'Event Counter가 빠짐없이 이어져야 함',seSkip:'이벤트 안의 Subevent가 빠짐없이 와야 함',
+  anchorTiming:'앵커 간격 = Δ이벤트 × ISO_Interval (허용 오차 안)',slotTiming:'Subevent 송신 시각 = 앵커 + (SE−1) × Sub_Interval (허용 오차 안)',
+  payloadEmpty:'이벤트 첫 송신에 오디오 데이터',payloadLen:'payload 길이가 스트림의 대표 길이와 같음',payloadZero:'payload에 유효한 데이터'};
+function smDetail(){
+  let h='';
+  if(fdView.sel===null)h+=`<div class="sm-dhead"><div class="sm-dim">에러를 고르면 그 시점의 로그로 이동합니다. 시각을 입력해 이동할 수도 있습니다.</div></div>`;
+  else{
+    const f=fd.findings[fdView.sel],[label,c]=FIND_KIND[f.kind],p=f.procedure!==null?fd.procs[f.procedure]:null;
+    let expect='',actual=f.detail,table='';
+    if(p){expect=p.expected||'';table=p.kind==='instant'?instantTable(p):stepTable(p);}
+    else if(f.iso){expect=[...new Set(Object.keys(f.types).map(k=>ISO_EXPECT[k]).filter(Boolean))].join(' · ');actual=`${f.title} · ${f.detail}`;table=isoTable(f);}
+    else if(f.kind==='corrupt'){expect='CRC OK';actual=`${f.title} · ${f.detail}`;table=crcTable(f);}
+    h+=`<div class="sm-dhead"><div><b style="color:${c}">${label}</b> <b>${escHtml(f.title)}</b> <span class="sm-dim">${escHtml(f.link)} · ${f.t.toFixed(6)} s</span></div></div>`;
+    h+=`<div class="sm-ex">${expect?`<div><span class="sm-exk">기대</span>${escHtml(expect)}</div>`:''}<div><span class="sm-exk" style="color:${c}">실제</span>${escHtml(actual)}</div></div>`;
+    const extra=[];
+    if(p&&p.checks&&p.checks.length)extra.push(p.checks.map(escHtml).join(' · '));
+    if(p)extra.push(`스펙 근거: ${p.spec?escHtml(p.spec):'<span class="tbd">미확인</span>'}${p.tbd&&p.tbd.length?` · 미확인 수치: <span class="tbd">${p.tbd.map(escHtml).join(', ')}</span>`:''}`);
+    h+=`<details class="sm-evd"${fdView.evOpen?' open':''}><summary>근거 표${p&&p.kind==='sequence'?' · 다이어그램':''}</summary><div class="sm-evd-body">${extra.map(x=>`<div class="sm-dim">${x}</div>`).join('')}${table}`;
+    h+=`<div class="sm-actions">${p&&p.kind==='sequence'?`<button class="btn btn-sm" data-ladder="1">${fdView.ladder?'다이어그램 닫기':'다이어그램 보기'}</button>`:''}</div>`;
+    if(p&&fdView.ladder)h+=procLadder(p);
+    h+='</div></details>';
+  }
+  return h+smViewsBar()+(fdView.view==='log'||!rawData.length?logShell():'<div class="sm-view" id="smView"></div>');
+}
+
+// ============================================================
+//  AIR LOG: every packet in time order, scrolled to the selected error. Only the rows in
+//  view are drawn (the log of a real capture has hundreds of thousands of packets).
+// ============================================================
+const LOG_ROW=26;
+// The packets of the selected error, highlighted in the log
+function fdHighlight(f){
+  const hl=new Set();
+  if(!f)return hl;
+  if(f.procedure!==null){const p=fd.procs[f.procedure];
+    p.steps.forEach(s=>{if(s.index!=null)hl.add(s.index);});
+    const evs=new Set((p.evidence||[]).map(e=>e.event));
+    if(evs.size)fd.events.forEach(e=>{if(e.link===p.link&&evs.has(e.event)&&e.sender==='C')hl.add(e.index);});
+  }else if(f.iso)f.members.forEach(k=>hl.add('iso'+issues[k].oi));
+  else if(f.kind==='corrupt')fd.events.forEach(e=>{if(e.link===f.link&&e.corrupt&&e.t>=f.t&&e.t<=f.t_end)hl.add(e.index);});
+  return hl;
+}
+function fdLogRows(){
+  const key=[fdView.link,fdView.hideEmpty,fdView.sel].join('|');
+  if(fd.logKey===key)return fd.log;
+  const empty=e=>(e.pdu==='Empty'||e.pdu==='Null')&&!e.corrupt;
+  fd.log=fd.events.filter(e=>(!fdView.link||e.link===fdView.link)&&(!fdView.hideEmpty||!empty(e)||fdView.hl.has(e.index)));
+  fd.logKey=key;
+  return fd.log;
+}
+// Columns shared by every packet; the rest of a packet's fields go after its name
+const LOG_COLS=[['Event','event'],['SE','SE'],['SN','SN'],['NESN','NESN'],['Channel','Channel'],['CRC','crc'],['Len','Len']];
+// Colors like the Packets tab: ISO streams keep theirs, other links get their own hues
+const LINK_HUES=[25,95,160,245,315,5,190,120];
+const linkColorCache={};
+function logColor(e){
+  if(e.iso)return getColor(e.sid,e.rawDir);
+  let c=linkColorCache[e.link];
+  if(!c){const hue=LINK_HUES[Object.keys(linkColorCache).length%LINK_HUES.length];
+    c=linkColorCache[e.link]={C:{fg:`hsl(${hue},70%,62%)`,bg:`hsla(${hue},70%,62%,0.10)`},P:{fg:`hsl(${hue},50%,78%)`,bg:`hsla(${hue},50%,78%,0.07)`}};}
+  return c[e.sender];
+}
+function logShell(){
+  const rows=fdLogRows(),nEmpty=fd.events.filter(e=>(e.pdu==='Empty'||e.pdu==='Null')&&!e.corrupt&&(!fdView.link||e.link===fdView.link)).length;
+  return `<div class="lg-bar"><b>에어로그</b><span class="sm-dim">${rows.length.toLocaleString()}줄${fdView.link?` · ${escHtml(fdView.link)}만`:''}</span>`+
+    `<label class="sm-dim"><input type="checkbox" data-empty="1"${fdView.hideEmpty?' checked':''}> 빈 PDU · Null 숨기기 (${nEmpty.toLocaleString()})</label><span class="sm-dim lg-hint">휠로 스크롤 · 파란 줄: 고른 에러의 패킷</span></div>`+
+    `<div class="lg" id="fdLog"><table class="lgt"><thead><tr><th class="ind"></th><th>Time (s)</th><th>Δ</th><th>Link</th><th>Direction</th><th>Packet</th>${LOG_COLS.map(([h])=>`<th>${h}</th>`).join('')}<th>판정</th></tr></thead><tbody></tbody></table></div>`;
+}
+function logRow(e,prev){
+  const notes=[];
+  if(e.iso){const pi=pktInfo.get(e.oi)||{};
+    if(pi.ack===false)notes.push('<span class="cell-error">NACK</span>');if(pi.resp===false)notes.push('<span class="cell-error">응답 없음</span>');
+    if(pi.retx)notes.push(`<span class="cell-retx">재전송 #${pi.retx}${pi.carry?' (이월)':''}</span>`);
+    (fd.isoNotes.get(e.oi)||[]).forEach(l=>notes.push(`<span class="cell-issue">${escHtml(l)}</span>`));}
+  (fd.stepOf.get(e.index)||[]).forEach(pi=>{const p=fd.procs[pi];notes.push(`<span style="color:${PROC_STATUS[p.status][1]}">${escHtml(p.rule)}${p.status!=='pass'?' · '+PROC_STATUS[p.status][0]:''}</span>`);});
+  const col=logColor(e),br=e.link.startsWith('BR/EDR');
+  const dir=e.sender==='C'?(br?'M→S':'C→P'):(br?'S→M':'P→C');
+  const shown=new Set(LOG_COLS.map(([,k])=>k));
+  const extra=Object.entries(e.fields).filter(([k])=>!shown.has(k)).map(([k,v])=>`${k}=${Array.isArray(v)?`[${v.length}]`:v}`).join(' ');
+  const val=k=>k==='event'?e.event:k==='crc'?(e.crc??(e.corrupt?'Error':'OK')):e.fields[k];
+  const cls=k=>k==='event'||k==='SN'?'cell-counter':k==='crc'?(e.corrupt?'cell-error':'cell-ok'):'';
+  const dt=prev?e.t-prev.t:null;
+  const empty=(e.pdu==='Empty'||e.pdu==='Null')&&!e.corrupt;
+  return `<tr class="${e.corrupt?'error-row':''}${fdView.hl.has(e.index)?' cur-issue':''}" style="${e.corrupt?'':'background:'+col.bg}" title="${escHtml(notes.join(' · ').replace(/<[^>]+>/g,''))}">`+
+    `<td class="stream-indicator" style="background:${col.fg}"></td><td class="cell-timestamp">${e.t.toFixed(6)}</td><td class="cell-timestamp">${dt!=null?'+'+fdMs(dt):''}</td>`+
+    `<td class="lk" style="color:${col.fg};font-weight:600" title="${escHtml(e.link)}">${escHtml(e.link)}</td><td style="color:${col.fg}">${dir}</td>`+
+    `<td class="pk${empty?' cell-muted':''}" title="${escHtml(e.pdu+(extra?' '+extra:''))}">${escHtml(e.pdu)}${extra?` <span class="sm-dim">${escHtml(extra)}</span>`:''}</td>`+
+    LOG_COLS.map(([,k])=>{const v=val(k);return `<td class="${cls(k)}">${v==null?'':escHtml(String(v))}</td>`;}).join('')+
+    `<td>${notes.join(' · ')}</td></tr>`;
+}
+// Spacer rows above and below keep the scroll height of the whole log; only rows in view are drawn
+function logPaint(){
+  const box=document.getElementById('fdLog');if(!box)return;
+  const rows=fdLogRows(),head=box.querySelector('thead').offsetHeight;
+  const a=Math.max(0,Math.floor((box.scrollTop-head)/LOG_ROW)-20),b=Math.min(rows.length,Math.ceil((box.scrollTop+box.clientHeight)/LOG_ROW)+20);
+  let h=`<tr class="lg-pad" style="height:${a*LOG_ROW}px"></tr>`;
+  for(let i=a;i<b;i++)h+=logRow(rows[i],rows[i-1]);
+  h+=`<tr class="lg-pad" style="height:${(rows.length-b)*LOG_ROW}px"></tr>`;
+  box.querySelector('tbody').innerHTML=h;
+}
+// Put the row at time t (or the first highlighted one) a third of the way down
+function logScrollTo(t){
+  const box=document.getElementById('fdLog');if(!box)return;
+  const rows=fdLogRows();
+  let i=rows.findIndex(e=>fdView.hl.has(e.index));
+  if(i<0||fdView.sel===null){let lo=0,hi=rows.length;while(lo<hi){const m=(lo+hi)>>1;if(rows[m].t<t)lo=m+1;else hi=m;}i=lo;}
+  box.scrollTop=Math.max(0,i*LOG_ROW+box.querySelector('thead').offsetHeight-box.clientHeight/3);
+}
+// Sequence: each step — when it came, how long after the previous one, and against its limit
+function stepTable(p){
+  let h='<table class="sm-ev"><thead><tr><th>Time (s)</th><th>앞 단계 후</th><th>Dir</th><th>Packet</th><th>결과</th></tr></thead><tbody>';
+  let prev=null;
+  p.steps.forEach((s,k)=>{
+    // measured from the previous step's last repeat (a page train repeats ID until answered)
+    const dt=s.t!=null&&prev!=null?s.t-prev:null,lim=s.within!=null?` (한도 ${fdMs(s.within)})`:'';
+    let res,cls='';
+    if(s.captured&&s.late){res=`늦게 옴${lim}`;cls='bad';}
+    else if(s.captured)res=k===0?'시작':p.status==='rejected'&&k===p.steps.length-1?'거절':`왔음${lim}`;
+    else if(k<(p.reached??p.steps.length)){res='캡처에 없음 (뒤 단계는 있음)';cls='warn';}
+    else if(p.status==='timeout'&&k===p.reached){res=`안 옴${lim}`;cls='bad';}
+    else res=p.status==='unknown'&&k===p.reached?'캡처가 먼저 끝남':'이후 판정 안 함';
+    if(p.status==='rejected'&&k===p.steps.length-1)cls='bad';
+    h+=`<tr class="${cls}"><td class="mono">${s.t!=null?s.t.toFixed(6):'—'}</td><td class="mono">${dt!=null?'+'+fdMs(dt):''}</td><td>${s.sender==='C'?'C→P':'P→C'}</td><td>${escHtml(s.label)}${s.repeats?` <span class="sm-dim">×${s.repeats} (마지막 ${s.t_last.toFixed(6)} s)</span>`:''}${s.event!=null?` <span class="sm-dim">ev ${s.event}</span>`:''}</td><td>${escHtml(res)}</td></tr>`;
+    if(s.t!=null)prev=s.t_last??s.t;
+  });
+  return h+'</tbody></table>';
+}
+// Instant: the events around it, with the measured value against the expected one
+function instantTable(p){
+  const ev=p.evidence||[];
+  if(!ev.length)return'';
+  const iv=ev.some(e=>e.expect!==undefined);
+  let h=`<table class="sm-ev"><thead><tr><th>Event</th><th>앵커 시각 (s)</th><th>${iv?'간격':'값'}</th>${iv?'<th>기대</th>':''}<th></th></tr></thead><tbody>`;
+  ev.forEach(e=>{
+    const bad=iv?e.expect!=null&&Math.abs(e.value-e.expect)>50e-6:e.note==='맵에 없음'||String(e.note).startsWith('기대');
+    h+=`<tr class="${bad?'bad':e.note==='Instant'?'mark':''}"><td class="mono">${e.event}</td><td class="mono">${e.t.toFixed(6)}</td><td class="mono">${iv?(e.value!=null?fdMs(e.value):''):escHtml(String(e.value))}</td>${iv?`<td class="mono">${e.expect!=null?fdMs(e.expect):e.note==='Instant'?'(전송 윈도우)':''}</td>`:''}<td>${escHtml(e.note||'')}${bad&&iv?' ← 다름':''}</td></tr>`;
+  });
+  return h+'</tbody></table>';
+}
+// ISO: the stream's packets in the events around the finding, as in the Packet Table
+function isoTable(f){
+  const fl=detectedFields,dc=getDirCol(),ecs=f.ecs.filter(e=>!isNaN(e));if(!ecs.length||fl.eventCounter===undefined)return'';
+  const lo=Math.min(...ecs)-1,hi=Math.max(...ecs)+1,mark=new Set(f.members.map(k=>issues[k].oi));
+  const byRow=new Map();issues.forEach(x=>{if(!byRow.has(x.oi))byRow.set(x.oi,[]);byRow.get(x.oi).push(ISSUE_TYPES.find(t=>t.key===x.type)?.label||x.type);});
+  const col=k=>fl[k]!==undefined;
+  let h=`<table class="sm-ev"><thead><tr><th>Time (s)</th><th>EC</th>${col('subevent')?'<th>SE</th>':''}<th>Dir</th>${col('sn')?'<th>SN</th><th>NESN</th>':''}<th>CRC</th>${col('payloadLen')?'<th>Len</th>':''}<th>판정</th></tr></thead><tbody>`;
+  let n=0;
+  rawData.forEach((r,oi)=>{
+    if(n>=80||getStreamId(r)!==f.sid)return;const ec=parseInt(r[fl.eventCounter]);if(ec<lo||ec>hi)return;n++;
+    const pi=pktInfo.get(oi)||{},v=[];
+    if(pi.ack===false)v.push('NACK');if(pi.resp===false)v.push('응답 없음');if(pi.retx)v.push(`재전송 #${pi.retx}${pi.carry?' (이월)':''}`);
+    (byRow.get(oi)||[]).forEach(l=>{if(!v.includes(l))v.push(l);});
+    const err=errorRows.has(oi);
+    const ts=tsUs(r[fl.timestamp]);
+    h+=`<tr class="${mark.has(oi)?'bad':err?'warn':''}"><td class="mono">${isNaN(ts)?escHtml(r[fl.timestamp]||''):(ts/1e6).toFixed(6)}</td><td class="mono">${ec}</td>${col('subevent')?`<td class="mono">${escHtml(r[fl.subevent])}</td>`:''}<td>${dc!==undefined?(isCtoPDir(r[dc])?'C→P':'P→C'):''}</td>${col('sn')?`<td class="mono">${escHtml(r[fl.sn])}</td><td class="mono">${escHtml(r[fl.nesn]??'')}</td>`:''}<td>${escHtml(fl.crc!==undefined?r[fl.crc]:fl.status!==undefined?r[fl.status]:'')}</td>${col('payloadLen')?`<td class="mono">${escHtml(r[fl.payloadLen])}</td>`:''}<td>${escHtml(v.join(', '))}</td></tr>`;
+  });
+  return h+`</tbody></table><div class="sm-dim">EC ${lo}–${hi}${n>=80?' (앞 80줄)':''} · 빨간 줄: 이 에러의 패킷 · 주황 줄: 그 밖의 CRC 에러</div>`;
+}
+function crcTable(f){
+  const evs=fd.events.filter(e=>e.link===f.link&&e.corrupt&&e.t>=f.t&&e.t<=f.t_end);
+  let h='<table class="sm-ev"><thead><tr><th>Time (s)</th><th>Dir</th><th>Event</th><th>Channel</th><th>Packet</th></tr></thead><tbody>';
+  evs.forEach(e=>{h+=`<tr class="bad"><td class="mono">${e.t.toFixed(6)}</td><td>${fdDir(e.sender)}</td><td class="mono">${e.event??''}</td><td class="mono">${e.fields.Channel??''}</td><td>${escHtml(e.pdu==='Empty'?'(빈 PDU)':e.pdu)}</td></tr>`;});
+  const chs=[...new Set(evs.map(e=>e.fields.Channel).filter(c=>c!==undefined))];
+  return h+`</tbody></table>${chs.length?`<div class="sm-dim">채널 ${chs.length}개에 걸쳐 있음: ${chs.join(', ')}${chs.length===1?' — 특정 채널 간섭 의심':''}</div>`:''}`;
+}
+
+// Central/Master on the left, Peripheral/Slave on the right; one row per step
+function procLadder(p){
+  const W=600,xC=170,xP=500,row=36,top=40,H=top+p.steps.length*row+8;
+  const names=p.layer.startsWith('BR/EDR')?['Master','Slave']:['Central','Peripheral'];
+  const reached=p.reached??p.steps.length;
+  let s=`<svg class="ladder" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">`;
+  s+=`<text x="${xC}" y="18" class="ld-head">${names[0]}</text><text x="${xP}" y="18" class="ld-head">${names[1]}</text>`;
+  s+=`<line x1="${xC}" y1="26" x2="${xC}" y2="${H-4}" class="ld-life"/><line x1="${xP}" y1="26" x2="${xP}" y2="${H-4}" class="ld-life"/>`;
+  p.steps.forEach((st,k)=>{
+    const y=top+k*row+row/2;
+    if(st.t!=null)s+=`<text x="4" y="${y-1}">+${fdMs(st.t-p.t)}</text>`;
+    if(st.event!=null&&st.sender!=='instant')s+=`<text x="4" y="${y+12}">event ${st.event}</text>`;
+    if(st.sender==='instant'){
+      const c=PROC_STATUS[p.status][1];
+      s+=`<line x1="${xC-30}" y1="${y}" x2="${xP+30}" y2="${y}" stroke="${c}" stroke-width="1.5" stroke-dasharray="6 4"/>`;
+      s+=`<text x="${(xC+xP)/2}" y="${y-6}" class="ld-label" style="fill:${c}">${escHtml(st.label)} — 새 값 적용 시점</text>`;
+      return;
+    }
+    const [x1,x2]=st.sender==='C'?[xC,xP]:[xP,xC], dir=x2>x1?1:-1;
+    let color='#58a6ff',dash='',note='';
+    if(!st.captured&&k<reached){color='#a371f7';dash='5 4';note=' (캡처 안 됨)';}
+    else if(!st.captured){color=p.status==='timeout'?'#f85149':'#8b949e';dash='5 4';note=p.status==='timeout'?' (안 옴)':' (캡처 끝)';}
+    else if(st.late){color='#db6d28';note=' (늦게 옴)';}
+    else if(p.status==='rejected'&&k===p.steps.length-1)color='#d29922';
+    s+=`<line x1="${x1}" y1="${y+6}" x2="${x2-dir*8}" y2="${y+6}" stroke="${color}" stroke-width="1.8"${dash?` stroke-dasharray="${dash}"`:''}/>`;
+    s+=`<polygon points="${x2},${y+6} ${x2-dir*9},${y+2} ${x2-dir*9},${y+10}" fill="${color}"/>`;
+    s+=`<text x="${(xC+xP)/2}" y="${y}" class="ld-label"${st.captured&&!st.late?'':` style="fill:${color}"`}>${escHtml(st.label+note)}</text>`;
+  });
+  return s+'</svg>';
+}
+function procMeta(p){
+  let h=`<div class="proc-meta"><div><b>${escHtml(p.rule)}</b> · ${escHtml(p.layer)} · ${escHtml(p.link)}</div><div>${procBadge(p.status)} ${escHtml(p.detail)}</div>`;
+  (p.checks||[]).forEach(c=>{h+=`<div>${escHtml(c)}</div>`;});
+  h+=`<div><b>스펙 근거</b> ${p.spec?escHtml(p.spec):'<span class="tbd">미확인</span>'}</div>`;
+  if(p.tbd&&p.tbd.length)h+=`<div><b>미확인 수치</b> <span class="tbd">${p.tbd.map(escHtml).join(', ')}</span></div>`;
+  return h+'</div>';
+}
+function fdGo(){const v=parseFloat(document.getElementById('fdTime').value);if(isNaN(v))return;fdView.t=v;fdView.sel=null;fdView.hl=new Set();renderFindings();}
+document.getElementById('findPanel').addEventListener('click',e=>{
+  const at=k=>e.target.closest(`[data-${k}]`);
+  if(e.target.dataset.rec){fdView.rec=e.target.checked;renderFindings();return;}
+  if(e.target.dataset.empty){fdView.hideEmpty=e.target.checked;renderFindings();return;}
+  if(e.target.closest('.sm-evd summary')){fdView.evOpen=!e.target.closest('details').open;return;}
+  if(at('find'))fdFocus(+at('find').dataset.find);
+  else if(at('link')){const l=at('link').dataset.link;fdView.link=fdView.link===l||!l?null:l;}
+  else if(at('view'))fdView.view=at('view').dataset.view;
+  else if(at('ladder'))fdView.ladder=!fdView.ladder;
+  else return;
+  renderFindings();
+});
+document.getElementById('findPanel').addEventListener('keydown',e=>{if(e.target.id==='fdTime'&&e.key==='Enter')fdGo();});
+function loadFindings(r,onlyTab){
+  fd={findings:r.findings||[],events:r.events||[],procs:r.procedures||[],span0:r.span||[0,0],stepOf:new Map()};
+  fd.procs.forEach((p,pi)=>p.steps.forEach(st=>{if(st.index!=null){if(!fd.stepOf.has(st.index))fd.stepOf.set(st.index,[]);fd.stepOf.get(st.index).push(pi);}}));
+  fdView={t:0,sel:null,link:null,rec:false,ladder:false,evOpen:false,hideEmpty:true,hl:new Set(),view:'log'};
+  fdMergeIso();fdLoaded=true;
+  fdView.t=fd.span[0];
+  // Open on the first error
+  const first=fd.findings.findIndex(f=>f.kind!=='recovered');
+  if(first>=0)fdFocus(first);
+  document.querySelector('#mainView .tabs').style.display='none';  // one screen: views are in the right pane
+  if(onlyTab){  // no ISO packets: Findings is the whole report
+    document.getElementById('landing').classList.add('hidden');
+    document.getElementById('mainView').classList.add('active');
+    document.getElementById('streamBar').style.display='none';
+    document.querySelectorAll('.tab:not([data-tab="findings"])').forEach(t=>t.style.display='none');
+  }
+  switchTab('findings');
+}
+
+// ISO packets and the ISO tabs' issues on the same time axis. The ISO analysis runs in the page,
+// so this runs after it (and again whenever it reruns: ISO parameters, column mapping)
+const ISO_FIND_KIND={crcLost:'lost',crcRecovered:'recovered',nack:'recovered',noResp:'absent',ecSkip:'absent',seSkip:'absent',
+  anchorTiming:'timing',slotTiming:'timing',payloadEmpty:'payload',payloadLen:'payload',payloadZero:'payload'};
+let fdLoaded=false;
+function fdMergeIso(){
+  fd.findings=fd.findings.filter(x=>!x.iso);fd.events=fd.events.filter(e=>!e.iso);
+  const f=detectedFields,dc=getDirCol();
+  if(rawData.length&&f.timestamp!==undefined){
+    const ts=i=>tsUs(rawData[i][f.timestamp])/1e6;
+    const isNull=r=>(f.npi!==undefined&&String(r[f.npi]).trim()==='1')||(f.payloadLen!==undefined&&parseInt(r[f.payloadLen])===0);
+    rawData.forEach((r,i)=>{const t=ts(i);if(isNaN(t))return;
+      fd.events.push({iso:true,oi:i,t,link:streamLabel(getStreamId(r)),sid:getStreamId(r),rawDir:dc!==undefined?r[dc]:null,
+        crc:f.crc!==undefined?r[f.crc]:f.status!==undefined?r[f.status]:undefined,sender:dc!==undefined&&isCtoPDir(r[dc])?'C':'P',
+        pdu:isNull(r)?'Null':'ISO Data',event:f.eventCounter!==undefined?parseInt(r[f.eventCounter]):null,index:'iso'+i,
+        corrupt:errorRows.has(i),fields:Object.fromEntries([['SE','subevent'],['SN','sn'],['NESN','nesn'],['Channel','channel'],['Len','payloadLen']]
+          .filter(([,k])=>f[k]!==undefined).map(([n,k])=>[n,r[f[k]]]))});});
+    fd.isoNotes=new Map();
+    issues.forEach(x=>{if(x.type==='nack'||x.type==='noResp')return;  // shown from pktInfo
+      const l=ISSUE_TYPES.find(t=>t.key===x.type)?.label||x.type;if(!fd.isoNotes.has(x.oi))fd.isoNotes.set(x.oi,[]);if(!fd.isoNotes.get(x.oi).includes(l))fd.isoNotes.get(x.oi).push(l);});
+    // One finding per kind, stream and direction; issues closer than 0.1 s are one finding
+    const last=new Map(),out=[];
+    issues.forEach((is,k)=>{const t=ts(is.oi);if(isNaN(t))return;
+      // An EC skip in both directions at once is most likely the sniffer's loss (the ISO tab says so too)
+      const kind=is.type==='ecSkip'&&/캡처 누락/.test(is.detail||'')?'capture':ISO_FIND_KIND[is.type]||'corrupt';
+      const key=kind+'|'+is.sid+'|'+is.dir,g=last.get(key);
+      if(g&&t-g.t_end<=0.1){g.types[is.type]=(g.types[is.type]||0)+1;g.t_end=t;g.ecs.push(is.ec);g.members.push(k);return;}
+      const ng={iso:true,kind,types:{[is.type]:1},t,t_end:t,link:streamLabel(is.sid),sid:is.sid,dir:is.dir,ecs:[is.ec],members:[k],oi:is.oi,procedure:null};
+      last.set(key,ng);out.push(ng);});
+    out.forEach(g=>{const ecs=g.ecs.filter(e=>!isNaN(e)),lo=Math.min(...ecs),hi=Math.max(...ecs);
+      const dir=g.dir?(isCtoPDir(g.dir)?'C→P':'P→C'):'양방향';
+      g.title=Object.entries(g.types).map(([k,n])=>`${ISSUE_TYPES.find(x=>x.key===k)?.label||k} ${n}건`).join(', ');
+      g.detail=`${dir}${ecs.length?` · EC ${lo}${hi>lo?'–'+hi:''}`:''}`;});
+    fd.findings.push(...out);
+  }
+  fd.findings.sort((x,y)=>x.t-y.t);fd.events.sort((x,y)=>x.t-y.t);
+  fd.links=[...new Set([...fd.events.map(e=>e.link),...fd.procs.map(p=>p.link)])].sort();
+  const ts=fd.events.map(e=>e.t);
+  fd.span=[Math.min(fd.span0[0],...ts),Math.max(fd.span0[1],...ts)];
+  fdView.sel=null;fdView.hl=new Set();fd.logKey=null;
+}
+
+// The right pane's views. ISO Grid and ISO 통계 are the existing panels, moved into the pane while
+// shown and parked back (hidden) before the summary is redrawn.
+const SM_VIEWS=[['log','에어로그'],['grid','ISO Grid'],['stats','ISO 통계']];
+function smPark(){
+  const park=document.querySelector('#mainView .pane-row');
+  ['streamBar','timelinePanel','issuesPanel'].forEach(id=>{const el=document.getElementById(id);
+    if(el.parentElement!==park){park.appendChild(el);}
+    if(id==='streamBar')el.style.display='none';else el.classList.remove('active');});
+}
+function smViewsBar(){
+  const views=rawData.length?SM_VIEWS:SM_VIEWS.slice(0,1);
+  if(views.length<2)return'';
+  return `<div class="sm-views">${views.map(([k,l])=>`<button class="btn btn-sm${fdView.view===k?' on':''}" data-view="${k}">${l}</button>`).join('')}</div>`;
+}
+function smShowPanel(){
+  const box=document.getElementById('smView');if(!box)return;
+  const bar=document.getElementById('streamBar');box.appendChild(bar);bar.style.display='';
+  const panel=document.getElementById(fdView.view==='grid'?'timelinePanel':'issuesPanel');
+  box.appendChild(panel);panel.classList.add('active');
+  if(fdView.view==='grid'){if(tlMode!=='grid'&&tlMode!=='timing')tlMode='grid';requestAnimationFrame(()=>{fdGridFocus();drawTimeline();});}
+  else renderIssues();
+}
+// Zoom the ISO Grid onto the selected error: its Event Counters, or the ISO event nearest in time
+function fdGridFocus(){
+  const fl=detectedFields;if(fl.eventCounter===undefined)return;
+  const M=gridModel&&gridModel.src===issues?gridModel:(gridModel=buildGridModel());
+  if(!M.sids.length)return;
+  const f=fdView.sel!==null?fd.findings[fdView.sel]:null;
+  let lo,hi;
+  if(f&&f.iso){const ecs=f.ecs.filter(e=>!isNaN(e));lo=Math.min(...ecs);hi=Math.max(...ecs);}
+  else{let best=null;fd.events.forEach(e=>{if(e.iso&&e.event!=null&&(!best||Math.abs(e.t-fdView.t)<Math.abs(best.t-fdView.t)))best=e;});
+    if(!best)return;lo=hi=best.event;}
+  const span=M.ecMax-M.ecMin+1,want=Math.max(30,hi-lo+12);
+  tlZoom=Math.max(1,span/want);
+  const wrap=document.getElementById('tlCanvasWrap'),colW=(wrap.clientWidth-120-40)*tlZoom/span;
+  tlPanX=Math.max(0,(lo-6-M.ecMin)*colW);
 }
 
 // ============================================================
@@ -2208,15 +2685,6 @@ function generateSampleData2(o){
 }
 
 // ============================================================
-//  EXPORT
-// ============================================================
-function exportReport(){
-  const lines=[headers.join(',')];
-  rawData.forEach((row,i)=>{const ex=errorRows.has(i)?' [ERROR]':gapRows.has(i)?` [GAP:${gapRows.get(i).missed}]`:'';lines.push(row.map(c=>`"${c}"`).join(',')+((ex)?`,"${ex}"`:''));});
-  const blob=new Blob([lines.join('\n')],{type:'text/csv'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='ellisys_report.csv';a.click();URL.revokeObjectURL(url);
-}
-
-// ============================================================
 //  COLUMN MAPPING
 //  Shows the auto-detected column for each field and lets the user correct it,
 //  along with how Direction and CRC/Status values are read. Saved per header
@@ -2271,7 +2739,7 @@ function renderMapBody() {
   let h = '';
   if (F.eventCounter === undefined || (F.cisId === undefined && F.bisId === undefined))
     h += '<div class="warn">CIS/BIS ID와 Event Counter가 있어야 대부분의 검사가 동작합니다. 해당 컬럼을 지정해 주세요.</div>';
-  h += '<table class="map-table"><thead><tr><th>필드</th><th>CSV 컬럼</th><th>예시 값</th><th>쓰이는 곳</th></tr></thead><tbody>';
+  h += '<table class="map-table"><thead><tr><th>필드</th><th>트레이스 컬럼</th><th>예시 값</th><th>쓰이는 곳</th></tr></thead><tbody>';
   MAP_FIELDS.forEach(([k, label, use]) => {
     const cur = F[k];
     h += `<tr><td>${label}</td><td><select data-field="${k}"><option value="">(없음)</option>${headers.slice(0, baseColCount).map((hd, i) => `<option value="${i}"${cur === i ? ' selected' : ''}>${escHtml(hd)}</option>`).join('')}</select></td>`
@@ -2327,9 +2795,9 @@ function loadData(h,d,iso){
   detectedFields=detectFields(headers);dirOverride={};errOverride={};dirCache.clear();
   isoUser=iso?{...iso}:{};
   loadSavedMapping(iso);
-  document.getElementById('dropzone').classList.add('hidden');
+  document.getElementById('landing').classList.add('hidden');
   document.getElementById('mainView').classList.add('active');
-  ['btnColumns','btnLoad','btnExport'].forEach(id=>document.getElementById(id).style.display='');
+  document.getElementById('btnColumns').style.display='';
   runAnalysis();
   // Without a stream ID or Event Counter most checks can't run: ask for the mapping
   if(detectedFields.eventCounter===undefined||getStreamCol()===null)openMapModal();
@@ -2345,7 +2813,7 @@ function runAnalysis(){
   document.getElementById('filterErrorOnly').checked=false;document.getElementById('filterSearch').value='';
   document.getElementById('btnClearAllFilters').style.display='none';
   buildStreamBar();initFilterBar();renderTable();buildTimeline();
-  switchTab('issues');
+  if(fdLoaded){fdMergeIso();switchTab('findings');}else switchTab('issues');
   document.getElementById('rowCount').textContent=`${filteredData.length} / ${rawData.length}`;
   console.log('Fields:',Object.entries(detectedFields).map(([k,v])=>`${k}:"${headers[v]}"`).join(', ')||'none');
 }
@@ -2353,21 +2821,32 @@ function runAnalysis(){
 // Tabs
 document.querySelectorAll('.tab').forEach(tab=>{tab.addEventListener('click',()=>switchTab(tab.dataset.tab));});
 
-// File handling
-const dz=document.getElementById('dropzone');
-dz.addEventListener('dragover',e=>{e.preventDefault();dz.classList.add('drag-over');});
-dz.addEventListener('dragleave',()=>dz.classList.remove('drag-over'));
-dz.addEventListener('drop',e=>{e.preventDefault();dz.classList.remove('drag-over');if(e.dataTransfer.files[0])readFile(e.dataTransfer.files[0]);});
-document.getElementById('fileInput').addEventListener('change',e=>{if(e.target.files[0])readFile(e.target.files[0]);});
-function readFile(f){const r=new FileReader();r.onload=e=>{const{headers:h,data:d}=parseCSV(e.target.result);if(h.length>0&&d.length>0)loadData(h,d);else alert('Could not parse CSV.');};r.readAsText(f);}
+// Sample data
 document.getElementById('btnSample').onclick=()=>{const{headers:h,data:d}=generateSampleData();loadData(h,d,{});};
 document.getElementById('btnSample2').onclick=()=>{const{headers:h,data:d}=generateSampleData();loadData(h,d,{});};
 const loadSampleFt=()=>{const g=generateSampleData2();loadData(g.headers,g.data,g.iso);};
 document.getElementById('btnSampleFt').onclick=loadSampleFt;
 document.getElementById('btnSampleFt2').onclick=loadSampleFt;
-document.getElementById('btnLoad').onclick=()=>{document.getElementById('mainView').classList.remove('active');document.getElementById('dropzone').classList.remove('hidden');['btnColumns','btnLoad','btnExport'].forEach(id=>document.getElementById(id).style.display='none');};
-document.getElementById('btnExport').onclick=exportReport;
 window.addEventListener('resize',()=>{const at=document.querySelector('.tab.active');if(at){if(at.dataset.tab==='timeline')drawTimeline();if(at.dataset.tab==='issues'&&causeOpen)drawCause();}});
+
+// Report built by airviewer.py: packets embedded in the page, shown without loading a file
+const embedded=document.getElementById('embeddedReport');
+if(embedded){
+  const r=JSON.parse(embedded.textContent);
+  document.title=`${r.source} — Ellisys Air Log Report`;
+  ['btnSample','btnSampleFt'].forEach(id=>{document.getElementById(id).style.display='none';});  // a report, not the template
+  if(r.findings)document.getElementById('protoTag').style.display='';
+  let iso={};
+  if(r.iso_sample){  // sample report: ISO packets from the page's generator, moved to offset_ms
+    const g=generateSampleData2(),ti=g.headers.indexOf('Timestamp');
+    g.data.forEach(row=>{row[ti]=(parseFloat(row[ti])+r.iso_sample.offset_ms).toFixed(3)+' ms';});
+    r.headers=g.headers;r.rows=g.data;iso=g.iso;
+  }
+  if(r.rows.length)loadData(r.headers,r.rows,iso);
+  if(r.findings)loadFindings(r,!r.rows.length);
+  const parts=[r.source];if(r.rows.length)parts.push(`${r.rows.length} ISO packets`);if(r.findings)parts.push(`${fd.findings.length} findings`);
+  document.querySelector('.header .subtitle').textContent=`${parts.join(' · ')} · ${r.generated.replace('T',' ')}`;
+}
 </script>
 </body>
 </html>
