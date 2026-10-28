@@ -226,6 +226,7 @@
 <div class="dropzone" id="dropzone">
   <h2>Drop CSV File Here</h2>
   <p>Drag & drop an Ellisys CSV export, or click to browse</p>
+  <p style="font-size:12px;">파일을 브라우저에 넣을 수 없는 PC라면 <code>airviewer.bat</code>에 CSV를 끌어다 놓거나 <code>python airviewer.py capture.csv</code>로 데이터가 들어 있는 리포트를 만들어 여세요.</p>
   <input type="file" id="fileInput" accept=".csv,.tsv,.txt" style="display:none;">
   <button class="btn btn-primary" onclick="document.getElementById('fileInput').click()">Browse Files</button>
   <div style="margin-top: 20px; display: flex; gap: 8px; justify-content: center;"><button class="btn" id="btnSample2">Or try with sample LE Audio data</button><button class="btn" id="btnSampleFt2">Sample: FT=2 · BN=2 · Timing</button></div>
@@ -2368,6 +2369,36 @@ document.getElementById('btnSampleFt2').onclick=loadSampleFt;
 document.getElementById('btnLoad').onclick=()=>{document.getElementById('mainView').classList.remove('active');document.getElementById('dropzone').classList.remove('hidden');['btnColumns','btnLoad','btnExport'].forEach(id=>document.getElementById(id).style.display='none');};
 document.getElementById('btnExport').onclick=exportReport;
 window.addEventListener('resize',()=>{const at=document.querySelector('.tab.active');if(at){if(at.dataset.tab==='timeline')drawTimeline();if(at.dataset.tab==='issues'&&causeOpen)drawCause();}});
+
+// ============================================================
+//  EMBEDDED DATA (report made by airviewer.py)
+//  The report carries the capture in <script id="airviewer-data">, so it opens by
+//  double-click with no file picker or drag & drop (blocked on some managed PCs).
+//  Payload: {source, headers, rows, iso?} as JSON, or gzip+base64 for large captures.
+// ============================================================
+async function loadEmbedded(){
+  const el=document.getElementById('airviewer-data');if(!el)return;
+  const dz=document.getElementById('dropzone'),h2=dz.querySelector('h2'),was=h2.textContent;
+  h2.textContent='리포트를 불러오는 중…';
+  await new Promise(r=>setTimeout(r,30)); // let the message paint before the heavy work
+  try{
+    let text=el.textContent;
+    if(el.dataset.encoding==='gzip+base64'){
+      const bs=atob(text.trim()),bin=new Uint8Array(bs.length);
+      for(let i=0;i<bs.length;i++)bin[i]=bs.charCodeAt(i); // much faster than Uint8Array.from(…, fn) on large reports
+      text=await new Response(new Blob([bin]).stream().pipeThrough(new DecompressionStream('gzip'))).text();
+    }
+    const d=JSON.parse(text);
+    if(!Array.isArray(d.headers)||!Array.isArray(d.rows)||!d.rows.length)throw new Error('행이 없습니다');
+    // iso: parameters given on the command line; without them the saved settings apply as usual
+    loadData(d.headers,d.rows,d.iso&&Object.keys(d.iso).length?d.iso:undefined);
+    if(d.source){const sub=document.querySelector('.header .subtitle');sub.textContent=d.source+` · ${d.rows.length.toLocaleString()} rows`;sub.title=d.created?'생성: '+d.created:'';document.title=d.source+' — AirViewer';}
+  }catch(e){
+    h2.textContent=was;
+    dz.insertAdjacentHTML('afterbegin',`<div style="color:#f85149;margin-bottom:16px;">리포트에 들어 있는 데이터를 읽지 못했습니다: ${escHtml(e.message)}<br><span style="color:#8b949e;">airviewer.py로 다시 만들어 보세요. 오래된 브라우저라면 Chrome/Edge 최신 버전에서 여세요.</span></div>`);
+  }
+}
+if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',loadEmbedded);else loadEmbedded();
 </script>
 </body>
 </html>
