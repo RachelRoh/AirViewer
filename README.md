@@ -23,6 +23,7 @@ py.exe -m pip install -r requirements.txt    # zeroc-ice (SDK는 bta_remote_api�
 py.exe airviewer.py /mnt/c/traces/a.btt      # -> C:\traces\a.html
 ```
 
+- `bta_remote_api/`는 저장소에 없다 (`.gitignore`). Ellisys의 [Remote Control 압축본](https://downloads.ellisys.com/remote_api_analyzer.zip)을 받아 저장소 루트에 `bta_remote_api/`로 푼다. `airviewer.py`는 그 안의 Python SDK(`Sdk/Analysis/Python`)를 그대로 쓴다.
 - Ellisys에 Remote Control 플러그인(`bta_remote_api/Binaries/RemoteControl`)이 설치·활성화돼 있어야 한다. 폴더를 Ellisys 설치 폴더에 복사하고 (DLL은 속성 → 차단 해제), Tools → Options → Remote Control에서 "Enable Remote Control on TCP/UDP port"를 켠다 (포트 12345).
 - Windows Python 3.12 이상으로 실행한다 (`py`, WSL에서는 `py.exe`). WSL의 `python3`은 zeroc-ice를 소스로 빌드해야 한다 (`libssl-dev`, `libbz2-dev` 필요).
 - 경로: `C:\...`와 `/mnt/c/...` 모두 받는다. .btt는 Ellisys가 여는 것이라 Windows 드라이브에 두는 게 안전하다.
