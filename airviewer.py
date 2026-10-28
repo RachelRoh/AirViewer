@@ -293,7 +293,17 @@ def main(argv=None):
     p.add_argument("--timeout", type=float, default=600, help="trace load timeout, s")
     p.add_argument("--explore", action="store_true",
                    help="print what the trace contains (overviews, item texts, field names, devices)")
+    p.add_argument("--no-open", action="store_true", help="don't open the report in the browser")
+    p.add_argument("--gzip", action="store_true", help="store the data compressed whatever its size")
+    g = p.add_argument_group("ISO parameters (default: the report's ISO panel, trace columns, defaults)")
+    for opt, key, typ in (("--bn-c", "bnC", int), ("--ft-c", "ftC", int), ("--bn-p", "bnP", int),
+                          ("--ft-p", "ftP", int), ("--nse", "nse", int), ("--iso-ms", "isoMs", float),
+                          ("--sub-ms", "subMs", float), ("--tol-us", "tolUs", float)):
+        g.add_argument(opt, dest=key, type=typ)
+    g.add_argument("--ts-unit", dest="tsUnit", choices=["auto", "s", "ms", "us", "ns"])
     args = p.parse_args(argv)
+    iso = {k: getattr(args, k) for k in ("bnC", "ftC", "bnP", "ftP", "nse", "isoMs", "subMs", "tolUs", "tsUnit")
+           if getattr(args, k) is not None}
 
     trace = analyzer_path(args.trace)
     out = local_path(args.out) if args.out else local_path(args.trace).with_suffix(".html")
@@ -318,8 +328,10 @@ def main(argv=None):
     if not rows:
         sys.exit("No CIS/BIS packets found. Run with --explore to see what the trace contains, "
                  "then pass --overview / --query.")
-    report.write_html(out, Path(args.trace).name, header, rows)
-    print(f"{len(rows)} packets -> {out}")
+    report.write_html(out, Path(args.trace).name, header, rows, force_gzip=args.gzip, **({"iso": iso} if iso else {}))
+    print(f"{len(rows)} packets -> {out} ({out.stat().st_size / 1e6:.1f} MB)")
+    if not args.no_open:
+        report.open_file(out)
 
 
 if __name__ == "__main__":

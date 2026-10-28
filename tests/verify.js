@@ -10,7 +10,12 @@
 //    delivered/lost verdict for every payload, for several BN/FT/error-rate settings.
 // 3. Timing: exactly the injected timing anomalies are flagged, nothing else.
 // 4. Edge cases: timestamp formats, BN/FT from trace columns, no SN/NESN, no Timestamp/Direction.
+// 5. Reports (needs python3 or python): the sample report from procedures.py opens by itself,
+//    as plain JSON and gzip+base64, and both give the same findings and ISO results.
 const path = require('path');
+const fs = require('fs');
+const os = require('os');
+const { execFileSync } = require('child_process');
 const { chromium } = require('playwright');
 
 const FILE = 'file://' + path.resolve(__dirname, '..', 'template', 'report_template.html');
@@ -156,6 +161,32 @@ if (process.env.FUZZ) {
   check('only timestamp unit / tolerance carried to the next file', JSON.stringify(robust.carried) === '{"tolUs":30}', robust.carried);
 
   check('no page errors', errors.length === 0, errors);
+
+  // 5. Reports with the data inside (report.py), plain and gzip+base64
+  const py = ['python3', 'python'].find(c => { try { execFileSync(c, ['--version'], { stdio: 'ignore' }); return true; } catch (e) { return false; } });
+  if (!py) console.log('SKIP  reports (no python3/python)');
+  else {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'airviewer-'));
+    const results = {};
+    for (const [name, args] of [['plain', []], ['gzip', ['--gzip']]]) {
+      const out = path.join(dir, name + '.html');
+      execFileSync(py, [path.resolve(__dirname, '..', 'procedures.py'), '--sample', '-o', out, ...args], { stdio: 'ignore' });
+      const p = await browser.newPage(); const errs = [];
+      p.on('pageerror', e => errs.push(e.message)); p.on('dialog', d => { errs.push('dialog'); d.dismiss(); });
+      await p.goto('file://' + out);
+      let r;
+      try {
+        await p.waitForFunction(() => document.getElementById('findPanel').classList.contains('active'), null, { timeout: 15000 });
+        r = await p.evaluate(() => ({ findings: fd.findings.map(f => f.kind + '@' + f.t.toFixed(6)).join(','), iso: rawData.length, issues: issues.length }));
+      } catch (e) { r = { error: e.message }; }
+      results[name] = r;
+      check(`report: ${name} opens`, !errs.length && !r.error && r.iso > 0 && r.findings.length > 0, { ...r, errs });
+      await p.close();
+    }
+    check('report: gzip gives the same result', JSON.stringify(results.plain) === JSON.stringify(results.gzip));
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+
   await browser.close();
   console.log(failed ? `\n${failed} check(s) failed` : '\nall checks passed');
   process.exit(failed ? 1 : 0);

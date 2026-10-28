@@ -2,6 +2,8 @@
 
     python3 tests/test_procedures.py
 """
+import base64
+import gzip
 import json
 import re
 import sys
@@ -99,6 +101,20 @@ class Output(unittest.TestCase):
         data = json.loads(m.group(1))
         self.assertEqual(len(data["procedures"]), len(results))
         self.assertEqual(data["rows"], [])
+
+    def test_gzip_report_holds_the_same_data(self):
+        data = procedures.analyze(sample_link.events())
+        with tempfile.TemporaryDirectory() as d:
+            plain, packed = Path(d) / "p.html", Path(d) / "g.html"
+            report.write_html(plain, "sample", **data)
+            report.write_html(packed, "sample", force_gzip=True, **data)
+            p_page, g_page = plain.read_text(encoding="utf-8"), packed.read_text(encoding="utf-8")
+        m = re.search(r'id="embeddedReport" data-encoding="gzip\+base64">(.*?)</script>', g_page, re.S)
+        unpacked = json.loads(gzip.decompress(base64.b64decode(m.group(1))))
+        direct = json.loads(re.search(r'id="embeddedReport">(.*?)</script>', p_page, re.S).group(1))
+        unpacked.pop("generated"), direct.pop("generated")
+        self.assertEqual(unpacked, direct)
+        self.assertLess(len(g_page), len(p_page))
 
     def test_sample_report_asks_for_iso_after_cis(self):
         with tempfile.TemporaryDirectory() as d:

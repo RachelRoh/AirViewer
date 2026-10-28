@@ -453,6 +453,7 @@ def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     p.add_argument("--sample", action="store_true", help="check the built-in sample link (prototype)")
     p.add_argument("-o", "--out", default="procedures_sample.html")
+    p.add_argument("--gzip", action="store_true", help="store the data compressed whatever its size")
     args = p.parse_args(argv)
     if not args.sample:
         p.error("only --sample for now: checks on Ellisys traces come with airviewer.py")
@@ -462,7 +463,7 @@ def main(argv=None):
     data = analyze(events)
     # ISO packets: the page's LE Audio sample, starting just after the CIS is established
     cis_ind = next(e.t for e in events if e.pdu == "LL_CIS_IND")
-    report.write_html(args.out, "Sample: LE ACL + CIS + BR/EDR page",
+    report.write_html(args.out, "Sample: LE ACL + CIS + BR/EDR page", force_gzip=args.gzip,
                       iso_sample={"offset_ms": round((cis_ind + 0.010) * 1e3, 3)}, **data)
     counts = {}
     for f in data["findings"]:

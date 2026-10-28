@@ -18,6 +18,10 @@ air log에서 주로 보는 네 가지를 자동으로 찾아준다.
 
 Ellisys Bluetooth Analyzer를 Remote Control API로 조종해 .btt를 열고 CIS/BIS 패킷을 뽑아, 데이터가 들어 있는 HTML 리포트(`a.html`)를 .btt 옆에 만든다. Ellisys에서 Export하거나 파일을 불러올 필요가 없다.
 
+- Windows에서는 .btt를 `airviewer.bat`에 끌어다 놓아도 된다. 만든 리포트는 브라우저로 저절로 열린다 (`--no-open`으로 끈다).
+- 리포트 하나에 데이터가 다 들어 있다. 브라우저의 파일 선택·드래그가 막힌 PC에서도 더블클릭으로 열리고, 이슈나 메일에는 그 파일만 붙이면 된다. 큰 캡처(JSON 8 MB 이상)는 gzip으로 압축해 넣는다 (`--gzip`이면 크기와 상관없이 압축).
+- ISO 파라미터를 명령줄로 줄 수 있다: `--bn-c 2 --ft-c 2 --bn-p 1 --ft-p 2` (`--nse`, `--iso-ms`, `--sub-ms`, `--tol-us`, `--ts-unit`도 있다). 리포트 안의 ISO 통계에서도 바꿀 수 있다.
+
 ```
 py.exe -m pip install -r requirements.txt    # zeroc-ice (SDK는 bta_remote_api에 포함된 것을 씀)
 py.exe airviewer.py /mnt/c/traces/a.btt      # -> C:\traces\a.html
@@ -342,6 +346,7 @@ python3 tests/test_airviewer.py     # airviewer.py, 가짜 분석기로 (Ellisys
 - 이상한 입력: SN 없음 + BN=2, BN 200000 입력, 동떨어진 Event Counter 한 줄, 단위 없는 초 단위 Timestamp, 다음 파일로 설정이 넘어가는지
 - 타이밍 검사가 주입한 이상만 정확히 잡는지
 - Timestamp 형식, 트레이스의 BN/FT 컬럼, SN/NESN 없음, Timestamp/Direction 없음
+- 리포트: `procedures.py --sample` 리포트가 일반 JSON과 gzip+base64 둘 다 저절로 열리고, 둘의 에러 목록과 ISO 결과가 같은지 (python이 없으면 건너뜀)
 
 ---
 
